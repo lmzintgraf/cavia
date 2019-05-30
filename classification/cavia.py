@@ -7,7 +7,8 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from classification import utils, configs_default
+import utils
+from classification import configs_default
 from classification.dataset_miniimagenet import MiniImagenet
 from classification.models import Net, CondConvNet
 from classification.train_logs import Logger
@@ -16,7 +17,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def run(config, num_workers=1, log_interval=100, verbose=True, save_path=None):
-    utils.seed(config['seed'])
+    utils.set_seed(config['seed'])
 
     # ---------------------------------------------------------
     # -------------------- training ---------------------------

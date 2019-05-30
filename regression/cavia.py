@@ -12,7 +12,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from regression import tasks_sine, utils, tasks_celebA
+import utils
+from regression import tasks_sine, tasks_celebA
 from regression.cavia_model import CaviaModel
 from regression.default_configs import get_default_config_cavia
 from regression.logger import Logger

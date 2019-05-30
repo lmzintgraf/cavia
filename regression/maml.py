@@ -12,10 +12,11 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from regression import tasks_sine, utils, tasks_celebA
+import utils
+from regression import tasks_sine, tasks_celebA
 from regression.default_configs import get_default_config_maml
 from regression.logger import Logger
-from regression import MamlModel
+from regression.maml_model import MamlModel
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

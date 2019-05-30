@@ -10,7 +10,8 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from classification import utils, configs_default
+import utils
+from classification import configs_default
 from classification.dataset_miniimagenet import MiniImagenet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -169,7 +170,7 @@ if __name__ == '__main__':
     config = configs_default.get_default_configs_cavia()
     log_interval = 100
 
-    utils.seed(config['seed'])
+    utils.set_seed(config['seed'])
 
     # --- settings ---
 
