@@ -25,10 +25,10 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
                         context_in=args.context_in,
                         num_classes=args.n_way,
                         num_filters=args.num_filters,
-                        max_pool=args.max_pool,
+                        max_pool=not args.no_max_pool,
                         num_film_hidden_layers=args.num_film_hidden_layers,
                         imsize=args.imsize,
-                        batchnorm_at_films=args.batchnorm_at_films,
+                        batchnorm_at_films=not args.no_batchnorm_at_films,
                         initialisation=args.nn_initialisation,
                         device=args.device
                         )
@@ -287,7 +287,7 @@ if __name__ == '__main__':
                                                                   args.context_in,
                                                                   args.gradient_noise,
                                                                   args.num_film_hidden_layers,
-                                                                  str(args.batchnorm_at_films),
+                                                                  1-int(args.no_batchnorm_at_films),
                                                                   args.n_iter)
     plt.suptitle(title)
     plt.title(' ')

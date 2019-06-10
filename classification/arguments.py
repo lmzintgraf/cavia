@@ -30,12 +30,12 @@ def parse_args():
     parser.add_argument('--context_in', type=list, default=[False, False, True, False, False], help='per layer, indicate if context params are added')
 
     parser.add_argument('--imsize', type=int, default=84, help='downscale images to this size')
-    parser.add_argument('--max_pool', type=bool, default=True, help='use max pooling in CNN')
+    parser.add_argument('--no_max_pool', action='store_true', default=False, help='turn off max pooling in CNN')
     parser.add_argument('--num_filters', type=int, default=32, help='number of filters per conv-layer')
     parser.add_argument('--nn_initialisation', type=str, default='kaiming', help='initialisation type (kaiming, xavier, None)')
 
     parser.add_argument('--num_film_hidden_layers', type=int, default=0, help='mumber of hidden layers used for FiLM')
-    parser.add_argument('--batchnorm_at_films', type=bool, default=True, help='use batchnorm for FiLM layers')
+    parser.add_argument('--no_batchnorm_at_films', action='store_true', default=False, help='turn off batchnorm for FiLM layers')
 
     #
 
