@@ -7,22 +7,14 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-def recursive_len(item):
-    if type(item) == list:
-        return sum(recursive_len(subitem) for subitem in item)
-    else:
-        return 1
-
 
 class MamlModel(nn.Module):
     def __init__(self,
                  n_inputs,
                  n_outputs,
                  n_weights,
-                 num_context_params
+                 num_context_params,
+                 device
                  ):
         """
         :param n_inputs:            the number of inputs to the network

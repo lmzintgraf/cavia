@@ -29,7 +29,8 @@ class RegressionTasksSinusoidal:
         phase = np.random.uniform(self.phase_range[0], self.phase_range[1])
         return self.get_target_function(amplitude, phase)
 
-    def get_target_function(self, amplitude, phase):
+    @staticmethod
+    def get_target_function(amplitude, phase):
         def target_function(x):
             if isinstance(x, torch.Tensor):
                 return torch.sin(x - phase) * amplitude

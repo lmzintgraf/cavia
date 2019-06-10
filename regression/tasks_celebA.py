@@ -9,21 +9,6 @@ import torch.nn.functional as F
 from PIL import Image
 from torchvision.transforms import transforms
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-if os.path.isdir('../../data/CelebA/'):
-    data_root = '../../data/CelebA/'
-else:
-    raise FileNotFoundError('Can\'t find celebrity faces.')
-
-code_root = os.path.dirname(os.path.realpath(__file__))
-
-imgs_root = os.path.join(data_root, 'Img/img_align_celeba/')
-imgs_root_preprocessed = os.path.join(data_root, 'Img/img_align_celeba_preprocessed/')
-if not os.path.isdir(imgs_root_preprocessed):
-    os.mkdir(imgs_root_preprocessed)
-data_split_file = os.path.join(data_root, 'Eval/list_eval_partition.txt')
-
 
 def ravel_index(x, y, img_size):
     x = x / img_size[1]
@@ -39,7 +24,23 @@ class CelebADataset:
     """
     Same regression task as in Garnelo et al. 2018 (Conditional Neural Processes)
     """
-    def __init__(self, mode):
+
+    def __init__(self, mode, device):
+
+        self.device = device
+
+        if os.path.isdir('./data/CelebA/'):
+            data_root = './data/CelebA/'
+        else:
+            raise FileNotFoundError('Can\'t find celebrity faces.')
+
+        self.code_root = os.path.dirname(os.path.realpath(__file__))
+        self.imgs_root = os.path.join(data_root, 'Img/img_align_celeba/')
+        self.imgs_root_preprocessed = os.path.join(data_root, 'Img/img_align_celeba_preprocessed/')
+        if not os.path.isdir(self.imgs_root_preprocessed):
+            os.mkdir(self.imgs_root_preprocessed)
+        self.data_split_file = os.path.join(data_root, 'Eval/list_eval_partition.txt')
+
         # input: x-y coordinate
         self.num_inputs = 2
         # output: pixel values (RGB)
@@ -70,8 +71,8 @@ class CelebADataset:
         return self.get_target_function(img)
 
     def get_image(self, filename):
-        img_path = os.path.join(imgs_root, filename)
-        img = self.transform(img_path).float().to(device)
+        img_path = os.path.join(self.imgs_root, filename)
+        img = self.transform(img_path).float().to(self.device)
         # img = img * 2 - 1
         img = img.permute(1, 2, 0)
         return img
@@ -103,7 +104,7 @@ class CelebADataset:
                                                  replace=False)
         x, y = np.unravel_index(flattened_indices, (self.img_size[0], self.img_size[1]))
         coordinates = np.vstack((x, y)).T
-        coordinates = torch.from_numpy(coordinates).float().to(device)
+        coordinates = torch.from_numpy(coordinates).float().to(self.device)
         # normalise coordinates
         coordinates[:, 0] /= self.img_size[0]
         coordinates[:, 1] /= self.img_size[1]
@@ -113,14 +114,14 @@ class CelebADataset:
         flattened_indices = range(self.img_size[0] * self.img_size[1])
         x, y = np.unravel_index(flattened_indices, (self.img_size[0], self.img_size[1]))
         coordinates = np.vstack((x, y)).T
-        coordinates = torch.from_numpy(coordinates).float().to(device)
+        coordinates = torch.from_numpy(coordinates).float().to(self.device)
         # normalise coordinates
         coordinates[:, 0] /= self.img_size[0]
         coordinates[:, 1] /= self.img_size[1]
         return coordinates
 
     def get_labels(self):
-        with open(data_split_file) as csv_file:
+        with open(self.data_split_file) as csv_file:
             csv_reader = csv.reader(csv_file, delimiter=' ')
             train_imgs = []
             valid_imgs = []
@@ -203,11 +204,11 @@ def visualise(task_family_train, task_family_test, model, config, i_iter):
         plt.xticks([])
         plt.yticks([])
 
-    if not os.path.isdir('{}/celeba_result_plots/'.format(code_root)):
-        os.mkdir('{}/celeba_result_plots/'.format(code_root))
+    if not os.path.isdir('{}/celeba_result_plots/'.format(self.code_root)):
+        os.mkdir('{}/celeba_result_plots/'.format(self.code_root))
 
     plt.tight_layout()
-    plt.savefig('{}/celeba_result_plots/{}_c{}_k{}_o{}_u{}_lr{}_{}'.format(code_root,
+    plt.savefig('{}/celeba_result_plots/{}_c{}_k{}_o{}_u{}_lr{}_{}'.format(self.code_root,
                                                                            config['method'],
                                                                            config['num_context_params'],
                                                                            config['k_meta_train'],

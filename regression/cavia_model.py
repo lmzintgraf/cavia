@@ -2,8 +2,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 class CaviaModel(nn.Module):
     """
@@ -15,8 +13,11 @@ class CaviaModel(nn.Module):
                  n_out,
                  num_context_params,
                  n_hidden,
+                 device
                  ):
         super(CaviaModel, self).__init__()
+
+        self.device = device
 
         # fully connected layers
         self.fc_layers = nn.ModuleList()
@@ -31,7 +32,7 @@ class CaviaModel(nn.Module):
         self.reset_context_params()
 
     def reset_context_params(self):
-        self.context_params = torch.zeros(self.num_context_params).to(device)
+        self.context_params = torch.zeros(self.num_context_params).to(self.device)
         self.context_params.requires_grad = True
 
     def forward(self, x):
