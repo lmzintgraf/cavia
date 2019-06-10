@@ -10,16 +10,6 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-if os.path.isdir('./miniimagenet'):
-    root = './miniimagenet'
-elif os.path.isdir('../../data/miniimagenet'):
-    root = '../../data/miniimagenet'
-else:
-    raise FileNotFoundError('Where is my data? o.O')
-
 
 class MiniImagenet(Dataset):
     """
@@ -34,7 +24,7 @@ class MiniImagenet(Dataset):
     sets: conains n_way * k_shot for meta-train set, n_way * n_query for meta-test set.
     """
 
-    def __init__(self, mode, batchsz, n_way, k_shot, k_query, imsize, startidx=0, verbose=True):
+    def __init__(self, mode, batchsz, n_way, k_shot, k_query, imsize, data_path, startidx=0, verbose=True):
         """
         :param mode: train, val or test
         :param batchsz: batch size of sets, not batch of imgs
@@ -53,6 +43,8 @@ class MiniImagenet(Dataset):
         self.query_size = self.n_way * self.k_query  # number of samples per set for evaluation
         self.imsize = imsize  # resize to
         self.startidx = startidx  # index label not from 0, but from startidx
+        self.data_path = data_path
+
         if verbose:
             print('shuffle DB :%s, b:%d, %d-way, %d-shot, %d-query, resize:%d' % (
                 mode, batchsz, n_way, k_shot, k_query, imsize))
@@ -63,8 +55,18 @@ class MiniImagenet(Dataset):
                                              transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                                              ])
 
-        self.path = os.path.join(root, 'images')  # image path
-        csvdata = [self.loadCSV(os.path.join(root, mode + '.csv'))]  # csv path
+        self.path_images = os.path.join(data_path, 'miniimagenet', 'images')  # image path
+        self.path_preprocessed = os.path.join(data_path, 'miniimagenet',
+                                              'images_preprocessed')  # preprocessed image path
+        if not os.path.exists(self.path_preprocessed):
+            os.mkdir(self.path_preprocessed)
+
+        csvdata = [self.loadCSV(os.path.join(data_path, 'miniimagenet', mode + '.csv'))]  # csv path
+
+        # check if we have the images
+        if not os.path.exists(self.path_images):
+            raise FileNotFoundError('Mini-Imagenet data not found. Please put the images in the folder '
+                                    './data/miniimagenet/images or specify --data_path in the arguments.')
 
         self.data = []
         self.img2label = {}
@@ -139,15 +141,12 @@ class MiniImagenet(Dataset):
         query_x = torch.FloatTensor(self.query_size, 3, self.imsize, self.imsize)
 
         # get the filenames and labels of the images
-        filenames_support_x = [os.path.join(self.path, item)
-                               for item in self.support_x_batch[index]]
+        filenames_support_x = [item for item in self.support_x_batch[index]]
         support_y = np.array([self.img2label[item[:9]]  # filename: n0153282900000005.jpg, first 9 chars are label
                               for item in self.support_x_batch[index]]).astype(np.int32)
 
-        filenames_query_x = [os.path.join(self.path, item)
-                             for item in self.query_x_batch[index]]
-        query_y = np.array([self.img2label[item[:9]]
-                            for item in self.query_x_batch[index]]).astype(np.int32)
+        filenames_query_x = [item for item in self.query_x_batch[index]]
+        query_y = np.array([self.img2label[item[:9]] for item in self.query_x_batch[index]]).astype(np.int32)
 
         # unique: [n-way], sorted
         unique = np.random.permutation(np.unique(support_y))
@@ -158,21 +157,23 @@ class MiniImagenet(Dataset):
             support_y_relative[support_y == l] = idx
             query_y_relative[query_y == l] = idx
 
-        for i, path in enumerate(filenames_support_x):
-            path_transformed = path[:-4] + '_transformed_{}'.format(self.imsize)
-            if not os.path.exists(path_transformed + '.npy'):
-                support_x[i] = self.transform(path)
-                np.save(path_transformed, support_x[i].numpy())
+        # pre-process the images and save as numpy arrays (makes the code run much faster afterwards)
+        for i, filename in enumerate(filenames_support_x):
+            filename_preprocesses = filename[:-4] + '_preprocesses_{}'.format(self.imsize)
+            path_preprocesses = os.path.join(self.path_preprocessed, filename_preprocesses)
+            if not os.path.exists(path_preprocesses + '.npy'):
+                support_x[i] = self.transform(os.path.join(self.path_images, filename))
+                np.save(path_preprocesses, support_x[i].numpy())
             else:
-                support_x[i] = torch.from_numpy(np.load(path_transformed + '.npy'))
-
+                support_x[i] = torch.from_numpy(np.load(path_preprocesses + '.npy'))
         for i, path in enumerate(filenames_query_x):
-            path_transformed = path[:-4] + '_transformed_{}'.format(self.imsize)
-            if not os.path.exists(path_transformed + '.npy'):
-                query_x[i] = self.transform(path)
-                np.save(path_transformed, query_x[i].numpy())
+            filename_preprocesses = path[:-4] + '_preprocesses_{}'.format(self.imsize)
+            path_preprocesses = os.path.join(self.path_preprocessed, filename_preprocesses)
+            if not os.path.exists(path_preprocesses + '.npy'):
+                query_x[i] = self.transform(os.path.join(self.path_images, path))
+                np.save(path_preprocesses, query_x[i].numpy())
             else:
-                query_x[i] = torch.from_numpy(np.load(path_transformed + '.npy'))
+                query_x[i] = torch.from_numpy(np.load(path_preprocesses + '.npy'))
 
         return support_x, torch.LongTensor(support_y_relative), query_x, torch.LongTensor(query_y_relative)
 

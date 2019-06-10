@@ -5,14 +5,12 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 class Logger:
-    def __init__(self, log_interval, config, verbose=True):
+    def __init__(self, log_interval, args, verbose=True):
 
         self.log_interval = log_interval
-        self.config = config
+        self.args = args
         self.verbose = verbose
 
         # highest accuracy observed on training and validation set, and on average
@@ -28,10 +26,10 @@ class Logger:
         # print some infos
         if verbose:
             print(
-                'n-way: ', config['n_way'], 'k-shot', config['k_shot'],
-                'lr[in]:', config['lr_inner'], ', [out]:', config['lr_meta'],
-                ', grad[in]:', config['num_grad_steps_inner'], ', [out]:', config['num_grad_steps_eval'],
-                'batchs:', config['tasks_per_metaupdate'],
+                'n-way: ', args.n_way, 'k-shot', args.k_shot,
+                'lr[in]:', args.lr_inner, ', [out]:', args.lr_meta,
+                ', grad[in]:', args.num_grad_steps_inner, ', [out]:', args.num_grad_steps_eval,
+                'batchs:', args.tasks_per_metaupdate,
             )
 
         # initialise dictionary to keep track of accuracies/losses
@@ -145,7 +143,7 @@ class Logger:
             if save_path is not None:
                 np.save(save_path + '_best_train', self.best_model_train_stats)
                 save_model = self.best_model_train
-                if device == 'cuda:0':
+                if self.args.device == 'cuda:0':
                     save_model = copy.deepcopy(self.best_model_train).to(torch.device('cpu'))
                 torch.save(save_model, save_path + '_best_train')
 
@@ -160,7 +158,7 @@ class Logger:
                 np.save(save_path + '_best_valid', self.best_model_valid_stats)
                 # save model to CPU
                 save_model = self.best_model_valid
-                if device == 'cuda:0':
+                if self.args.device == 'cuda:0':
                     save_model = copy.deepcopy(self.best_model_valid).to(torch.device('cpu'))
                 torch.save(save_model, save_path + '_best_valid')
 
@@ -175,7 +173,7 @@ class Logger:
                 np.save(save_path + '_best_train_valid', self.best_model_train_valid_stats)
                 # save model to CPU
                 save_model = self.best_model_train_valid
-                if device == 'cuda:0':
+                if self.args.device == 'cuda:0':
                     save_model = copy.deepcopy(self.best_model_train_valid).to(torch.device('cpu'))
                 torch.save(save_model, save_path + '_best_train_valid')
 

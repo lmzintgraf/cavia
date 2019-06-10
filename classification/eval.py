@@ -11,20 +11,18 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
 import utils
-from classification import configs_default
-from classification.dataset_miniimagenet import MiniImagenet
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+import arguments
+from dataset_miniimagenet import MiniImagenet
 
 
-def evaluate(config, model, logger, dataloader, mode, num_grad_steps):
+def evaluate(args, model, logger, dataloader, mode, num_grad_steps):
 
     for c, batch in enumerate(dataloader):
 
-        support_x = batch[0].to(device)
-        support_y = batch[1].to(device)
-        query_x = batch[2].to(device)
-        query_y = batch[3].to(device)
+        support_x = batch[0].to(args.device)
+        support_y = batch[1].to(args.device)
+        query_x = batch[2].to(args.device)
+        query_y = batch[3].to(args.device)
 
         for inner_batch_idx in range(support_x.shape[0]):
 
@@ -46,7 +44,7 @@ def evaluate(config, model, logger, dataloader, mode, num_grad_steps):
                 grad_inner = torch.autograd.grad(loss_inner, model.context_params)[0]
 
                 # set context parameters to their updated values
-                model.context_params = model.context_params - config['lr_inner'] * grad_inner
+                model.context_params = model.context_params - args.lr_inner * grad_inner
 
             logger.log_post_update(support_x[inner_batch_idx], support_y[inner_batch_idx],
                                    query_x[inner_batch_idx], query_y[inner_batch_idx],
@@ -57,9 +55,9 @@ def evaluate(config, model, logger, dataloader, mode, num_grad_steps):
 
 
 class Logger:
-    def __init__(self, config):
+    def __init__(self, args):
 
-        self.config = config
+        self.args = args
 
         # initialise dictionary to keep track of accuracies/losses
         self.train_stats = {
@@ -167,28 +165,27 @@ class Logger:
 
 if __name__ == '__main__':
 
-    config = configs_default.get_default_configs_cavia()
+    args = arguments.parse_args()
     log_interval = 100
 
-    utils.set_seed(config['seed'])
+    utils.set_seed(args.seed)
 
     # --- settings ---
 
-    config['k_shot'] = 1
-    config['lr_inner'] = 1.0
-    config['lr_meta'] = 'decay'
-    config['num_grad_steps_inner'] = 2
-    config['num_grad_steps_eval'] = 2
-    config['model'] = 'cnn'
-    config['imsize'] = 224
-    config['num_context_params'] = 100
+    args.k_shot = 1
+    args.lr_inner = 1.0
+    args.lr_meta = 'decay'
+    args.num_grad_steps_inner = 2
+    args.num_grad_steps_eval = 2
+    args.model = 'cnn'
+    args.num_context_params = 100
 
-    if config['k_shot'] == 1:
-        config['tasks_per_metaupdate'] = 4
+    if args.k_shot == 1:
+        args.tasks_per_metaupdate = 4
     else:
-        config['tasks_per_metaupdate'] = 2
+        args.tasks_per_metaupdate = 2
 
-    path = os.path.join(utils.get_base_path(), 'result_files', utils.get_path_from_config(config))
+    path = os.path.join(utils.get_base_path(), 'result_files', utils.get_path_from_args(args))
 
     try:
         training_stats, validation_stats = np.load(path + '.npy')
@@ -197,7 +194,7 @@ if __name__ == '__main__':
         raise FileNotFoundError
 
     # initialise logger
-    logger = Logger(config)
+    logger = Logger(args)
     logger.print_header()
 
     for num_grad_steps in [2]:
@@ -205,11 +202,11 @@ if __name__ == '__main__':
         print('\n --- ', num_grad_steps, '--- \n')
 
         # initialise logger
-        logger = Logger(config)
+        logger = Logger(args)
 
         for selection_criterion in ['valid']:
 
-            logger = Logger(config)
+            logger = Logger(args)
 
             for dataset in ['train', 'val', 'test']:
                 # load model and its performance during training
@@ -217,13 +214,12 @@ if __name__ == '__main__':
                 best_performances = np.load(path + '_best_{}.npy'.format(selection_criterion))
 
                 # initialise dataloader
-                mini_test = MiniImagenet(mode=dataset, n_way=config['n_way'],
-                                         k_shot=config['k_shot'], k_query=config['k_query'],
-                                         batchsz=500, imsize=config['imsize'],
-                                         verbose=False)
+                mini_test = MiniImagenet(mode=dataset, n_way=args.n_way,
+                                         k_shot=args.k_shot, k_query=args.k_query,
+                                         batchsz=500, verbose=False, imsize=args.imsize)
                 db_test = DataLoader(mini_test, batch_size=1, shuffle=True, num_workers=1, pin_memory=True)
 
                 # evaluate the model
-                evaluate(config, model, logger, db_test, mode=dataset, num_grad_steps=num_grad_steps)
+                evaluate(args, model, logger, db_test, mode=dataset, num_grad_steps=num_grad_steps)
 
             logger.print_logs(selection_criterion, best_performances)
