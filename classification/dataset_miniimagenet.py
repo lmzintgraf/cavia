@@ -64,7 +64,7 @@ class MiniImagenet(Dataset):
         csvdata = [self.loadCSV(os.path.join(data_path, 'miniimagenet', mode + '.csv'))]  # csv path
 
         # check if we have the images
-        if not os.path.exists(self.path_images):
+        if not os.listdir(self.path_images):
             raise FileNotFoundError('Mini-Imagenet data not found. Please put the images in the folder '
                                     './data/miniimagenet/images or specify --data_path in the arguments.')
 
