@@ -8,6 +8,11 @@ import torch
 
 
 def set_seed(seed, cudnn=True):
+    """
+    Seed everything we can!
+    Note that gym environments might need additional seeding (env.seed(seed)),
+    and num_workers needs to be set to 1.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -28,10 +33,10 @@ def load_obj(name):
         return pickle.load(f)
 
 
-def get_path_from_config(config):
-    """ Returns a unique path from a config dict. """
-    config_str = str(config)
-    path = hashlib.md5(config_str.encode()).hexdigest()
+def get_path_from_args(args):
+    """ Returns a unique hash for an argparse object. """
+    args_str = str(args)
+    path = hashlib.md5(args_str.encode()).hexdigest()
     return path
 
 

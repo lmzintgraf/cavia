@@ -1,30 +1,58 @@
-## CAVIA (in PyTorch)
+## CAVIA
 
 Code for "[Fast Context Adaptation via Meta-Learning](https://arxiv.org/abs/1810.03642)" - 
 Luisa M Zintgraf, Kyriacos Shiarlis, Vitaly Kurin, Katja Hofmann, Shimon Whiteson
 (ICML 2019).
 
+I used Python 3.7 and PyTorch 1.0.1 for these experiments.
+
 ### Regression
 
-See `src/regression/`, 
-which includes code for both the sine curve and the CelebA experiments. 
-See the file `cavia.py` and `maml.py` and execute them to run experiments.
-The settings/hyperparameters can be found and changed in `configs_default.py`.
+- Running experiments:
+    
+    To run the experiment with default settings, execute
+    ```
+    python3 regression/main.py
+    ```
+    
+    This will run the sine curve experiment. 
+    To run the CelebA image completion experiment, run 
+    ```
+    python3 regression/main --task celeba --num_context_params 128 --num_hidden_layers 128 128 128 128 128 --k_meta_test 1024
+    ```
+    To change the number of context parameters, use the flag `--num_context_params`.
+    
+    To run MAML with the default settings, run `python3 regression/main.py --maml --num_context_params 0 --lr_inner 0.1`
 
-If you want to use the code for the CelebA dataset, you have to download it 
-(`http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html`) and change the path in 
-`tasks_celeba.py`.
+    For default settings and other argument options, see `classification/arguments.py`
+    
+- CelebA dataset:
+
+    If you want to use the code for the CelebA dataset, you have to download it 
+    (`http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html`) and change the path in 
+    `tasks_celeba.py`.
 
 ### Classification
 
-You need the Mini-Imagenet dataset to run these experiments. 
-See e.g. `https://github.com/y2l/mini-imagenet-tools` for how to retrieve it.
+- Running experiments:
 
-To run the experiment, execute `cavia.py`.
+    To run the experiment with default settings, execute in your command line:
+    ```
+    python3 classification/cavia.py
+    ```
+
+    Use the `--num_filters` flag to set the number of filters. 
+    For default settings and other argument options, see `arguments.py`.
+
+- Retrieving Mini-Imagenet:
+   
+    You need the Mini-Imagenet dataset to run these experiments. 
+    See e.g. `https://github.com/y2l/mini-imagenet-tools` for how to retrieve it.
+    Put them in the folder `classification/data/miniimagenet/images/` (the label files are already in there).
 
 ### Reinforcement Learning
 
-Coming soon.
+See the README in the [RL subfolder](github.com/lmzintgraf/cavia/rl).
 
 #
 
@@ -35,7 +63,7 @@ Chelsea Finn,
 Jackie Loong and 
 Tristan Deleu for their open-sourced MAML implementations.
 This was of great help to us, 
-and large parts of our implementation are based on the PyTorch code from:
+and parts of our implementation are based on the PyTorch code from:
 - Jackie Loong's implementation of MAML, `https://github.com/dragen1860/MAML-Pytorch`
 - Tristan Deleu's implementation of MAML-RL, `https://github.com/tristandeleu/pytorch-maml-rl`
 
