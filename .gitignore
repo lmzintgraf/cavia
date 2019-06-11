@@ -5,5 +5,16 @@ __pycache__
 .ipynb_checkpoints
 .cache
 
-data
-results
+docker
+mujoco_key.txt
+
+# data folders
+data/miniimagenet/images
+data/CelebA/
+
+# result folders
+saves/
+logs/
+plots/
+results/
+*result_files
