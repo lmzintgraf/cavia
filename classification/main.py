@@ -7,8 +7,8 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-import utils
 import arguments
+import utils
 from dataset_miniimagenet import MiniImagenet
 from logger import Logger
 from models import CondConvNet
@@ -28,14 +28,13 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
                         max_pool=not args.no_max_pool,
                         num_film_hidden_layers=args.num_film_hidden_layers,
                         imsize=args.imsize,
-                        batchnorm_at_films=not args.no_batchnorm_at_films,
                         initialisation=args.nn_initialisation,
                         device=args.device
                         )
     model.train()
 
     # set up meta-optimiser for model parameters
-    meta_optimiser = torch.optim.Adam(model.parameters(), 0.001)
+    meta_optimiser = torch.optim.Adam(model.parameters(), args.lr_meta)
     scheduler = torch.optim.lr_scheduler.StepLR(meta_optimiser, 5000, args.lr_meta_decay)
 
     # initialise logger
@@ -49,9 +48,11 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
 
         # batchsz here means total episode number
         dataset_train = MiniImagenet(mode='train',
-                                     n_way=args.n_way, k_shot=args.k_shot,
+                                     n_way=args.n_way,
+                                     k_shot=args.k_shot,
                                      k_query=args.k_query,
-                                     batchsz=10000, imsize=args.imsize,
+                                     batchsz=10000,
+                                     imsize=args.imsize,
                                      data_path=args.data_path)
         # fetch meta_batchsz num of episode each time
         dataloader_train = DataLoader(dataset_train, args.tasks_per_metaupdate, shuffle=True,
@@ -61,8 +62,10 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
         # initialise dataloader
         dataset_valid = MiniImagenet(mode='val',
                                      n_way=args.n_way,
-                                     k_shot=args.k_shot, k_query=args.k_query,
-                                     batchsz=500, imsize=args.imsize,
+                                     k_shot=args.k_shot,
+                                     k_query=args.k_query,
+                                     batchsz=500,
+                                     imsize=args.imsize,
                                      data_path=args.data_path)
         dataloader_valid = DataLoader(dataset_valid, batch_size=num_workers, shuffle=True, num_workers=num_workers,
                                       pin_memory=True)
@@ -71,8 +74,7 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
 
         for step, batch in enumerate(dataloader_train):
 
-            if args.lr_meta == 'decay':
-                scheduler.step()
+            scheduler.step()
 
             support_x = batch[0].to(args.device)
             support_y = batch[1].to(args.device)
@@ -108,8 +110,7 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
                     # compute gradient for context parameters
                     task_grad_train = torch.autograd.grad(task_loss_train,
                                                           model.context_params,
-                                                          create_graph=True,
-                                                          retain_graph=True)[0]
+                                                          create_graph=True)[0]
 
                     # set context parameters to their updated values
                     model.context_params = model.context_params - args.lr_inner * task_grad_train
@@ -162,7 +163,7 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
 
             # set gradients of parameters manually
             for c, param in enumerate(model.parameters()):
-                param.grad = meta_grad[c] / args.tasks_per_metaupdate
+                param.grad = meta_grad[c] / float(args.tasks_per_metaupdate)
                 param.grad.data.clamp_(-10, 10)
 
             # the meta-optimiser only operates on the shared parameters, not the context parameters
@@ -204,8 +205,7 @@ def evaluate(iter_counter, args, model, logger, dataloader, save_path):
                 # compute gradient for context parameters
                 grad_inner = torch.autograd.grad(loss_inner,
                                                  model.context_params,
-                                                 create_graph=True,
-                                                 retain_graph=True)[0]
+                                                 create_graph=True)[0]
 
                 # set context parameters to their updated values
                 model.context_params = model.context_params - args.lr_inner * grad_inner
@@ -233,6 +233,8 @@ if __name__ == '__main__':
 
     if not os.path.exists(os.path.join(utils.get_base_path(), 'result_files')):
         os.mkdir(os.path.join(utils.get_base_path(), 'result_files'))
+    if not os.path.exists(os.path.join(utils.get_base_path(), 'result_plots')):
+        os.mkdir(os.path.join(utils.get_base_path(), 'result_plots'))
 
     path = os.path.join(utils.get_base_path(), 'result_files', utils.get_path_from_args(args))
     log_interval = 100
@@ -243,7 +245,7 @@ if __name__ == '__main__':
     # -------------- plot -----------------
 
     plt.switch_backend('agg')
-    training_stats, validation_stats = np.load(path + '.npy')
+    training_stats, validation_stats = np.load(path + '.npy', allow_pickle=True)
 
     plt.figure(figsize=(10, 5))
     x_ticks = np.arange(1, log_interval * len(training_stats['train_accuracy_pre_update']), log_interval)
@@ -270,30 +272,28 @@ if __name__ == '__main__':
     plt.ylim([0, 1.01])
     plt.xlim([0, 60000])
 
-    if args.k_shot == 1:
-        plt.plot(x_ticks, np.zeros(x_ticks.shape) + 0.48, 'k--')
-    elif args.k_shot == 5:
-        plt.plot(x_ticks, np.zeros(x_ticks.shape) + 0.63, 'k--')
 
-    title = 'k={}, init={}, #t={}, lr={}-{}, ' \
-            'grad={}-{} phi={} ({}) e={} #f={} bn={} i={}'.format(args.k_shot,
-                                                                  args.initialisation,
-                                                                  args.tasks_per_metaupdate,
-                                                                  args.lr_inner,
-                                                                  args.lr_meta,
-                                                                  args.num_grad_steps_inner,
-                                                                  args.num_grad_steps_eval,
-                                                                  args.num_context_params,
-                                                                  args.context_in,
-                                                                  args.gradient_noise,
-                                                                  args.num_film_hidden_layers,
-                                                                  1-int(args.no_batchnorm_at_films),
-                                                                  args.n_iter)
+    title = 'k={}, cfilt={}, init={}, #t={}, lr={}-{}, ' \
+            'grad={}-{} phi={} ({}) #f={} i={} seed={}'.format(args.k_shot,
+                                                               args.num_filters,
+                                                               args.nn_initialisation,
+                                                               args.tasks_per_metaupdate,
+                                                               args.lr_inner,
+                                                               args.lr_meta,
+                                                               args.num_grad_steps_inner,
+                                                               args.num_grad_steps_eval,
+                                                               args.num_context_params,
+                                                               args.context_in,
+                                                               args.num_film_hidden_layers,
+                                                               args.n_iter,
+                                                               args.seed
+                                                               )
     plt.suptitle(title)
     plt.title(' ')
     plt.xlabel('num iter', fontsize=10)
     plt.ylabel('accuracy', fontsize=10)
     plt.legend()
     plt.tight_layout()
-    plt.savefig('result_plots/{}'.format(title.replace('.', '')))
-    plt.show()
+
+    plt.savefig(os.path.join(utils.get_base_path(), 'result_plots', '{}'.format(title.replace('.', ''))))
+    plt.close()
