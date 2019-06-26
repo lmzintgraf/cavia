@@ -44,5 +44,6 @@ def parse_args():
 
     # use the GPU if available
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(args.device)
 
     return args

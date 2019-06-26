@@ -46,10 +46,10 @@ class CondConvNet(nn.Module):
 
         # not using this for now - need to implement using the mini-train-dataset statistics
         # # batch norm
-        self.bn1 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
-        self.bn2 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
-        self.bn3 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
-        self.bn4 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        # self.bn1 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        # self.bn2 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        # self.bn3 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        # self.bn4 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
 
         # initialise weights for the fully connected layer
         if imsize == 84:
@@ -150,7 +150,7 @@ class CondConvNet(nn.Module):
         # pass through convolutional layer
         h1 = self.conv1(x)
         # batchnorm
-        h1 = self.bn1(h1)
+        # h1 = self.bn1(h1)
         # do max-pooling (for imagenet)
         if self.max_pool:
             h1 = F.max_pool2d(h1, kernel_size=2)
@@ -168,7 +168,7 @@ class CondConvNet(nn.Module):
         h1 = F.relu(h1)
 
         h2 = self.conv2(h1)
-        h2 = self.bn2(h2)
+        # h2 = self.bn2(h2)
         if self.max_pool:
             h2 = F.max_pool2d(h2, kernel_size=2)
         if self.context_in[1]:
@@ -181,7 +181,7 @@ class CondConvNet(nn.Module):
         h2 = F.relu(h2)
 
         h3 = self.conv3(h2)
-        h3 = self.bn3(h3)
+        # h3 = self.bn3(h3)
         if self.max_pool:
             h3 = F.max_pool2d(h3, kernel_size=2)
         if self.context_in[2]:
@@ -194,7 +194,7 @@ class CondConvNet(nn.Module):
         h3 = F.relu(h3)
 
         h4 = self.conv4(h3)
-        h4 = self.bn4(h4)
+        # h4 = self.bn4(h4)
         if self.max_pool:
             h4 = F.max_pool2d(h4, kernel_size=2)
         if self.context_in[3]:
