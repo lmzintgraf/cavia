@@ -84,7 +84,7 @@ def run(args, log_interval=5000, rerun=False):
 
             for _ in range(args.num_inner_updates):
                 # forward through model
-                train_outpus = model(train_inputs)
+                train_outputs = model(train_inputs)
 
                 # get targets
                 train_targets = target_functions[t](train_inputs)
@@ -92,7 +92,7 @@ def run(args, log_interval=5000, rerun=False):
                 # ------------ update on current task ------------
 
                 # compute loss for current task
-                task_loss = F.mse_loss(train_outpus, train_targets)
+                task_loss = F.mse_loss(train_outputs, train_targets)
 
                 # compute gradient wrt context params
                 task_gradients = \
