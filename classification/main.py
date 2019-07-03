@@ -47,17 +47,17 @@ def run(args, num_workers=1, log_interval=100, verbose=True, save_path=None):
     # change 1
     # set up meta-optimiser for model parameters
     # pip install adabound
-    import adabound
-    # meta_optimiser = torch.optim.Adam(model.parameters(), 0.001)
-    meta_optimiser = adabound.AdaBound(model.parameters(), lr=1e-3, final_lr=0.1)
+    # import adabound
+    meta_optimiser = torch.optim.Adam(model.parameters(), 0.001)
+    # meta_optimiser = adabound.AdaBound(model.parameters(), lr=1e-3, final_lr=0.1)
 
     # change 2
     # scheduler = CyclicCosAnnealingLR(meta_optimizer, milestones=[10,25,60,80,120,180,240,320,400,480],
 #                                          decay_milestones=[60, 120, 240, 480, 960], eta_min=1e-6)
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=meta_optimiser, T_max=args.n_iter,
+    # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=meta_optimiser, T_max=args.n_iter,
                                                               eta_min=0.00001)
-    # scheduler = torch.optim.lr_scheduler.StepLR(meta_optimiser, 5000, args.lr_meta_decay)
+    scheduler = torch.optim.lr_scheduler.StepLR(meta_optimiser, 5000, args.lr_meta_decay)
     # torch.optim.lr_scheduler.StepLR()
 
     # initialise logger
@@ -282,25 +282,29 @@ if __name__ == '__main__':
     args = parse_args()
     #
     # # --- settings ---
-    # base_path = './'
+    base_path = './'
+
     #
-    # if not os.path.exists(os.path.join(base_path, 'result_files')):
-    #     os.mkdir(os.path.join(base_path, 'result_files'))
+    if not os.path.exists(os.path.join(base_path, 'result_files')):
+        os.mkdir(os.path.join(base_path, 'result_files'))
     #
-    # if not os.path.exists(os.path.join(base_path, 'result_files', datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))):
-    #   os.mkdir(os.path.join(base_path, 'result_files', datetime.now().strftime('%Y-%m-%d_%H_%M_%S')))
+
+    datetime_folder = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
+    if not os.path.exists(os.path.join(base_path, 'result_files', datetime_folder)):
+      os.mkdir(os.path.join(base_path, 'result_files', datetime_folder))
     #
-    # path = os.path.join(base_path, 'result_files', datetime.now().strftime('%Y-%m-%d_%H_%M_%S'),
-    #                     get_path_from_args(args))
+    path = os.path.join(base_path, 'result_files', datetime_folder,
+                        get_path_from_args(args))
     log_interval = 100
     #
-    # if not os.path.exists(path + '.npy'):
-    #     run(args, num_workers=1, log_interval=log_interval, save_path=path)
+    if not os.path.exists(path + '.npy'):
+        run(args, num_workers=1, log_interval=log_interval, save_path=path)
 
     # -------------- plot -----------------
 
     # plt.switch_backend('agg')
-    training_stats, validation_stats = np.load('result_files/2019-06-24_15_53_45/c9fa5bcad1d9d2605f512ed729de78de' + '.npy')
+    training_stats, validation_stats = np.load('result_files/'  + datetime_folder + '/' +
+                                                utils.get_path_from_args(args) + '.npy')
 
     plt.figure(figsize=(10, 5))
     x_ticks = np.arange(1, log_interval * len(training_stats['train_accuracy_pre_update']), log_interval)

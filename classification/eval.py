@@ -185,7 +185,7 @@ if __name__ == '__main__':
     else:
         args.tasks_per_metaupdate = 2
 
-    path = os.path.join(utils.get_base_path(), 'result_files', utils.get_path_from_args(args))
+    path = os.path.join(utils.get_base_path(), 'result_files', datetime_folder, utils.get_path_from_args(args))
     try:
         training_stats, validation_stats = np.load(path + '.npy')
     except FileNotFoundError:

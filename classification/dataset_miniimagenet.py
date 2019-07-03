@@ -7,34 +7,17 @@ import os
 import numpy as np
 import torch
 from PIL import Image
-from PIL import ImageEnhance
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 
-transformtypedict=dict(Brightness=ImageEnhance.Brightness, Contrast=ImageEnhance.Contrast, Sharpness=ImageEnhance.Sharpness, Color=ImageEnhance.Color)
-
-
-
-class ImageJitter(object):
-    def __init__(self, transformdict):
-        self.transforms = [(transformtypedict[k], transformdict[k]) for k in transformdict]
-
-
-    def __call__(self, img):
-        out = img
-        randtensor = torch.rand(len(self.transforms))
-
-        for i, (transformer, alpha) in enumerate(self.transforms):
-            r = alpha*(randtensor[i]*2.0 -1.0) + 1
-            out = transformer(out).enhance(r).convert('RGB')
-
-        return out
 
 class MiniImagenet(Dataset):
     """
     put mini-imagenet files as :
     root :
-        |- images/*.jpg includes all imgeas
+        |- train/*.jpg
+        |- test/*.jpg
+        |- val/*.jpg
         |- train.csv
         |- test.csv
         |- val.csv
@@ -70,25 +53,22 @@ class MiniImagenet(Dataset):
 
         self.transform = transforms.Compose([lambda x: Image.open(x).convert('RGB'),
                                              transforms.Resize((self.imsize, self.imsize), Image.LANCZOS),
-                                             transforms.RandomResizedCrop(self.imsize),
-                                             ImageJitter(dict(Brightness=0.4, Contrast=0.4, Color=0.4)),
-                                             transforms.RandomHorizontalFlip(),
                                              transforms.ToTensor(),
                                              transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                                              ])
 
-        self.path_images = os.path.join(data_path, 'miniimagenet', 'images')  # image path
-        self.path_preprocessed = os.path.join(data_path, 'miniimagenet',
-                                              'images_preprocessed')  # preprocessed image path
+        self.path_images = os.path.join(data_path, mode)  # image path
+        print(self.path_images)
+        self.path_preprocessed = os.path.join(data_path, 'images_preprocessed', mode)  # preprocessed image path
         if not os.path.exists(self.path_preprocessed):
             os.mkdir(self.path_preprocessed)
 
-        csvdata = [self.loadCSV(os.path.join(data_path, 'miniimagenet', mode + '.csv'))]  # csv path
+        csvdata = [self.loadCSV(os.path.join(data_path, mode + '.csv'))]  # csv path
 
         # check if we have the images
         if not os.listdir(self.path_images):
             raise FileNotFoundError('Mini-Imagenet data not found. Please put the images in the folder '
-                                    './data/miniimagenet/images or specify --data_path in the arguments.')
+                                    './data/miniimagenet/{train}{test}{val} or specify --data_path in the arguments.')
 
         self.data = []
         self.img2label = {}
@@ -182,19 +162,26 @@ class MiniImagenet(Dataset):
         # pre-process the images and save as numpy arrays (makes the code run much faster afterwards)
         for i, filename in enumerate(filenames_support_x):
             filename_preprocesses = filename[:-4] + '_preprocesses_{}'.format(self.imsize)
-            path_preprocesses = os.path.join(self.path_preprocessed, filename_preprocesses)
+            path_preprocesses = os.path.join(self.path_preprocessed,  filename[:9], filename_preprocesses)
             if not os.path.exists(path_preprocesses + '.npy'):
-                support_x[i] = self.transform(os.path.join(self.path_images, filename))
+                if not os.path.exists(os.path.join(self.path_preprocessed, filename[:9])):
+                  os.mkdir(os.path.join(self.path_preprocessed, filename[:9]))
+                support_x[i] = self.transform(os.path.join(self.path_images, filename[:9], filename))
                 np.save(path_preprocesses, support_x[i].numpy())
             else:
+                # print(path_preprocesses)
                 support_x[i] = torch.from_numpy(np.load(path_preprocesses + '.npy'))
+
         for i, path in enumerate(filenames_query_x):
             filename_preprocesses = path[:-4] + '_preprocesses_{}'.format(self.imsize)
-            path_preprocesses = os.path.join(self.path_preprocessed, filename_preprocesses)
+            path_preprocesses = os.path.join(self.path_preprocessed, path[:9], filename_preprocesses)
             if not os.path.exists(path_preprocesses + '.npy'):
-                query_x[i] = self.transform(os.path.join(self.path_images, path))
+                if not os.path.exists(os.path.join(self.path_preprocessed, path[:9])):
+                  os.mkdir(os.path.join(self.path_preprocessed, path[:9]))
+                query_x[i] = self.transform(os.path.join(self.path_images, path[:9], path))
                 np.save(path_preprocesses, query_x[i].numpy())
             else:
+                # print(path_preprocesses)
                 query_x[i] = torch.from_numpy(np.load(path_preprocesses + '.npy'))
 
         return support_x, torch.LongTensor(support_y_relative), query_x, torch.LongTensor(query_y_relative)
