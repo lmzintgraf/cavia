@@ -46,14 +46,7 @@ class CondConvNet(nn.Module):
                                    padding=padding).to(device)
 
         # batch norm (IMPORTANT: move to GPU first, then create parameter! Otherwise it won't get registered!)
-        # self.bn1 = nn.BatchNorm2d(self.num_filters).to(device)
-        # self.bn2 = nn.BatchNorm2d(self.num_filters).to(device)
-        # self.bn3 = nn.BatchNorm2d(self.num_filters).to(device)
-        # self.bn4 = nn.BatchNorm2d(self.num_filters).to(device)
-        # self.in1 = nn.InstanceNorm2d(self.num_filters).to(device)
-        # self.in2 = nn.InstanceNorm2d(self.num_filters).to(device)
-        # self.in3 = nn.InstanceNorm2d(self.num_filters).to(device)
-        # self.in4 = nn.InstanceNorm2d(self.num_filters).to(device)
+        self.bn = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
         self.dropout = nn.Dropout2d(0.4)
 
         # initialise weights for the fully connected layer
@@ -157,7 +150,7 @@ class CondConvNet(nn.Module):
         h1 = self.conv1(x)
         # h1.size() -> torch.Size([5, 32, 84, 84])
         # batchnorm
-        # h1 = self.bn1(h1)
+        h1 = self.bn(h1)
         # instance norm
         # h1 = self.in1(h1)
         # do max-pooling (for imagenet)
@@ -179,7 +172,7 @@ class CondConvNet(nn.Module):
         h1 = F.relu(h1)
 
         h2 = self.conv2(h1)
-        # h2 = self.bn2(h2)
+        h2 = self.bn(h2)
 
         # h2 = self.in2(h2)
         if self.max_pool:
@@ -195,12 +188,12 @@ class CondConvNet(nn.Module):
         h2 = F.relu(h2)
 
         h3 = self.conv3(h2)
-        # h3 = self.bn3(h3)
+        h3 = self.bn(h3)
         # h3 = self.in2(h3)
         if self.max_pool:
             h3 = F.max_pool2d(h3, kernel_size=2)
         # h3.size() -> torch.Size([5, 32, 10, 10])
-        # h3 = self.dropout(h3)
+        h3 = self.dropout(h3)
 
         if self.context_in[2]:
             film3 = self.film3(self.context_params)
@@ -218,7 +211,7 @@ class CondConvNet(nn.Module):
         h3 = F.relu(h3)
 
         h4 = self.conv4(h3)
-        # h4 = self.bn4(h4)
+        h4 = self.bn(h4)
         # h4 = self.in2(h4)
         if self.max_pool:
             h4 = F.max_pool2d(h4, kernel_size=2)
@@ -231,7 +224,7 @@ class CondConvNet(nn.Module):
             beta4 = film4[self.num_filters:].view(1, -1, 1, 1)
             h4 = gamma4 * h4 + beta4
         h4 = F.relu(h4)
-        # h4 = self.dropout(h4)
+        h4 = self.dropout(h4)
         # flatten
 
         h4 = h4.view(h4.size(0), -1)
