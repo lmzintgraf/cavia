@@ -44,7 +44,6 @@ class CondConvNet(nn.Module):
             self.conv4 = nn.Conv2d(self.num_filters, self.num_filters, self.kernel_size, stride=stride,
                                    padding=padding).to(device)
 
-        # not using this for now - need to implement using the mini-train-dataset statistics
         # # batch norm
         self.bn1 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
         self.bn2 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
