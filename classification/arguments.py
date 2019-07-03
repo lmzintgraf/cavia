@@ -7,7 +7,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Fast Context Adaptation via Meta-Learning (CAVIA),'
                                                  'Clasification experiments.')
 
-    parser.add_argument('--n_iter', type=int, default=6000, help='number of meta-iterations')
+    parser.add_argument('--n_iter', type=int, default=60000, help='number of meta-iterations')
     parser.add_argument('--seed', type=int, default=42)
 
     parser.add_argument('--tasks_per_metaupdate', type=int, default=16, help='number of tasks in each batch per meta-update')
