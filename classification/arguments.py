@@ -2,6 +2,7 @@ import argparse
 import torch
 
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Fast Context Adaptation via Meta-Learning (CAVIA),'
                                                  'Clasification experiments.')
@@ -38,11 +39,12 @@ def parse_args():
 
     #
 
-    parser.add_argument('--data_path', type=str, default='./data', help='folder which contains image data')
+    parser.add_argument('--data_path', type=str, default='./data/miniimagenet', help='folder which contains image data')
 
     args = parser.parse_args()
 
     # use the GPU if available
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(args.device)
 
     return args
