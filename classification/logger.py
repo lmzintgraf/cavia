@@ -225,10 +225,8 @@ class Logger:
                 ))
 
     def get_accuracy(self, x, y, model):
-        model.eval()
         predictions = model(x)
         num_correct = torch.argmax(F.softmax(predictions, dim=1), 1).eq(y).sum().item()
-        model.train()
         return num_correct / len(y)
 
     def get_loss(self, x, y, model):

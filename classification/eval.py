@@ -185,7 +185,8 @@ if __name__ == '__main__':
     else:
         args.tasks_per_metaupdate = 2
 
-    path = os.path.join(utils.get_base_path(), 'result_files', datetime_folder, utils.get_path_from_args(args))
+    path = os.path.join(utils.get_base_path(), 'result_files', utils.get_path_from_args(args))
+
     try:
         training_stats, validation_stats = np.load(path + '.npy')
     except FileNotFoundError:
@@ -215,7 +216,7 @@ if __name__ == '__main__':
                 # initialise dataloader
                 mini_test = MiniImagenet(mode=dataset, n_way=args.n_way,
                                          k_shot=args.k_shot, k_query=args.k_query,
-                                         batchsz=500, verbose=False, imsize=args.imsize, data_path=args.data_path)
+                                         batchsz=500, verbose=False, imsize=args.imsize)
                 db_test = DataLoader(mini_test, batch_size=1, shuffle=True, num_workers=1, pin_memory=True)
 
                 # evaluate the model

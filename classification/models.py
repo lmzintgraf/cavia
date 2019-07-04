@@ -24,7 +24,6 @@ class CondConvNet(nn.Module):
         self.context_in = context_in
         self.num_film_hidden_layers = num_film_hidden_layers
         self.kernel_size = 3
-        # self.batchnorm_at_films = batchnorm_at_films
 
         # -- shared network --
 
@@ -45,9 +44,11 @@ class CondConvNet(nn.Module):
             self.conv4 = nn.Conv2d(self.num_filters, self.num_filters, self.kernel_size, stride=stride,
                                    padding=padding).to(device)
 
-        # batch norm (IMPORTANT: move to GPU first, then create parameter! Otherwise it won't get registered!)
-        self.bn = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
-        self.dropout = nn.Dropout2d(0.4)
+        # # batch norm
+        self.bn1 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        self.bn2 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        self.bn3 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
+        self.bn4 = nn.BatchNorm2d(self.num_filters, track_running_stats=False).to(device)
 
         # initialise weights for the fully connected layer
         if imsize == 84:
@@ -144,20 +145,14 @@ class CondConvNet(nn.Module):
         self.context_params.requires_grad = True
 
     def forward(self, x):
-        # set_trace()
-        # x.size() -> torch.Size([5, 3, 84, 84]) | torch.Size([75, 3, 84, 84])
+
         # pass through convolutional layer
         h1 = self.conv1(x)
-        # h1.size() -> torch.Size([5, 32, 84, 84])
         # batchnorm
-        h1 = self.bn(h1)
-        # instance norm
-        # h1 = self.in1(h1)
+        h1 = self.bn1(h1)
         # do max-pooling (for imagenet)
         if self.max_pool:
             h1 = F.max_pool2d(h1, kernel_size=2)
-        # h1.size() -> torch.Size([5, 32, 42, 42])
-
         # if we have context parameters, adjust conv output using FiLM variables
         if self.context_in[0]:
             # FiLM it: forward through film layer to get scale and shift parameter
@@ -172,12 +167,9 @@ class CondConvNet(nn.Module):
         h1 = F.relu(h1)
 
         h2 = self.conv2(h1)
-        h2 = self.bn(h2)
-
-        # h2 = self.in2(h2)
+        h2 = self.bn2(h2)
         if self.max_pool:
             h2 = F.max_pool2d(h2, kernel_size=2)
-        # h2.size() -> torch.Size([5, 32, 21, 21])
         if self.context_in[1]:
             film2 = self.film2(self.context_params)
             if self.num_film_hidden_layers == 1:
@@ -188,34 +180,22 @@ class CondConvNet(nn.Module):
         h2 = F.relu(h2)
 
         h3 = self.conv3(h2)
-        h3 = self.bn(h3)
-        # h3 = self.in2(h3)
+        h3 = self.bn3(h3)
         if self.max_pool:
             h3 = F.max_pool2d(h3, kernel_size=2)
-        # h3.size() -> torch.Size([5, 32, 10, 10])
-        h3 = self.dropout(h3)
-
         if self.context_in[2]:
             film3 = self.film3(self.context_params)
-            # film3.size() -> torch.Size([64])
             if self.num_film_hidden_layers == 1:
                 film3 = self.film33(F.relu(film3))
-            # self.num_filters -> 32
             gamma3 = film3[:self.num_filters].view(1, -1, 1, 1)
-            # gamma3.size() -> torch.Size([1, 32, 1, 1])
             beta3 = film3[self.num_filters:].view(1, -1, 1, 1)
-            # beta3.size() -> torch.Size([1, 32, 1, 1])
             h3 = gamma3 * h3 + beta3
-            # h3.size() -> torch.Size([5, 32, 10, 10])
-
         h3 = F.relu(h3)
 
         h4 = self.conv4(h3)
-        h4 = self.bn(h4)
-        # h4 = self.in2(h4)
+        h4 = self.bn4(h4)
         if self.max_pool:
             h4 = F.max_pool2d(h4, kernel_size=2)
-        # h4.size() -> torch.Size([5, 32, 5, 5])
         if self.context_in[3]:
             film4 = self.film4(self.context_params)
             if self.num_film_hidden_layers == 1:
@@ -224,19 +204,13 @@ class CondConvNet(nn.Module):
             beta4 = film4[self.num_filters:].view(1, -1, 1, 1)
             h4 = gamma4 * h4 + beta4
         h4 = F.relu(h4)
-        h4 = self.dropout(h4)
-        # flatten
 
+        # flatten
         h4 = h4.view(h4.size(0), -1)
-        # h4.size() -> torch.Size([5, 800]) | torch.Size([75, 800])
 
         if self.context_in[4]:
             h4 = torch.cat((h4, self.context_params.expand(h4.size(0), -1)), dim=1)
 
-        # adaptiveavgpool
-
         y = self.fc1(h4)
-        # y = self.bn1(y)
-        # y.size() -> torch.Size([5, 5]) | torch.Size([75, 5])
 
         return y
