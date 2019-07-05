@@ -39,6 +39,8 @@ def parse_args():
     #
 
     parser.add_argument('--data_path', type=str, default='./data', help='folder which contains image data')
+    parser.add_argument('--rerun', action='store_true',
+                        help='Re-run experiment (will override previously saved results)')
 
     args = parser.parse_args()
 

@@ -239,8 +239,10 @@ if __name__ == '__main__':
     path = os.path.join(utils.get_base_path(), 'result_files', utils.get_path_from_args(args))
     log_interval = 100
 
-    if not os.path.exists(path + '.npy'):
+    if not os.path.exists(path + '.npy') or args.rerun:
         run(args, num_workers=1, log_interval=log_interval, save_path=path)
+    else:
+        print('Found results in {}. If you want to re-run, use the argument --rerun'.format(path))
 
     # -------------- plot -----------------
 
