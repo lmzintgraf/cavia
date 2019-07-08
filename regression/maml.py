@@ -90,6 +90,9 @@ def run(args, log_interval=5000, rerun=False):
 
             for _ in range(args.num_inner_updates):
 
+                # copy the current model (we use this to compute the inner-loop update)
+                model_outer = model_inner
+
                 # forward through network
                 outputs = model_outer(train_inputs)
 
@@ -162,19 +165,19 @@ def run(args, log_interval=5000, rerun=False):
         if i_iter % log_interval == 0:
 
             # evaluate on training set
-            loss_mean, loss_conf = eval(args, copy.deepcopy(model_outer), task_family=task_family_train,
+            loss_mean, loss_conf = eval(args, copy.copy(model_outer), task_family=task_family_train,
                                         num_updates=args.num_inner_updates)
             logger.train_loss.append(loss_mean)
             logger.train_conf.append(loss_conf)
 
             # evaluate on test set
-            loss_mean, loss_conf = eval(args, copy.deepcopy(model_outer), task_family=task_family_valid,
+            loss_mean, loss_conf = eval(args, copy.copy(model_outer), task_family=task_family_valid,
                                         num_updates=args.num_inner_updates)
             logger.valid_loss.append(loss_mean)
             logger.valid_conf.append(loss_conf)
 
             # evaluate on validation set
-            loss_mean, loss_conf = eval(args, copy.deepcopy(model_outer), task_family=task_family_test,
+            loss_mean, loss_conf = eval(args, copy.copy(model_outer), task_family=task_family_test,
                                         num_updates=args.num_inner_updates)
             logger.test_loss.append(loss_mean)
             logger.test_conf.append(loss_conf)
@@ -185,11 +188,11 @@ def run(args, log_interval=5000, rerun=False):
             # save best model
             if logger.valid_loss[-1] == np.min(logger.valid_loss):
                 print('saving best model at iter', i_iter)
-                logger.best_valid_model = copy.deepcopy(model_outer)
+                logger.best_valid_model = copy.copy(model_outer)
 
             # visualise results
             if args.task == 'celeba':
-                tasks_celebA.visualise(task_family_train, task_family_test, copy.deepcopy(logger.best_valid_model),
+                tasks_celebA.visualise(task_family_train, task_family_test, copy.copy(logger.best_valid_model),
                                        args, i_iter)
 
             # print current results
