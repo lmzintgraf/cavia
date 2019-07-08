@@ -17,4 +17,5 @@ saves/
 logs/
 plots/
 results/
+*result_plots
 *result_files

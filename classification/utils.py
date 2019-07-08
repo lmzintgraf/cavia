@@ -2,6 +2,7 @@ import hashlib
 import os
 import pickle
 import random
+import copy
 
 import numpy as np
 import torch
@@ -35,8 +36,10 @@ def load_obj(name):
 
 def get_path_from_args(args):
     """ Returns a unique hash for an argparse object. """
-    args_str = str(args)
-    path = hashlib.md5(args_str.encode()).hexdigest()
+    a = copy.copy(args)
+    del a.rerun
+    a = str(a)
+    path = hashlib.md5(a.encode()).hexdigest()
     return path
 
 
