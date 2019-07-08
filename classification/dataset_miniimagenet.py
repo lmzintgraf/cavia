@@ -15,7 +15,9 @@ class MiniImagenet(Dataset):
     """
     put mini-imagenet files as :
     root :
-        |- images/*.jpg includes all imgeas
+        |- train/*.jpg
+        |- test/*.jpg
+        |- val/*.jpg
         |- train.csv
         |- test.csv
         |- val.csv
@@ -55,18 +57,38 @@ class MiniImagenet(Dataset):
                                              transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                                              ])
 
-        self.path_images = os.path.join(data_path, 'miniimagenet', 'images')  # image path
-        self.path_preprocessed = os.path.join(data_path, 'miniimagenet',
-                                              'images_preprocessed')  # preprocessed image path
-        if not os.path.exists(self.path_preprocessed):
-            os.mkdir(self.path_preprocessed)
+        # check if images are all in one folder or separated into train/val/test folders
+        if os.path.exists(os.path.join(data_path, 'images')):
+            self.subfolder_split = False
+            self.path_images = os.path.join(data_path, 'images')  # image path
+            self.path_preprocessed = os.path.join(data_path, 'images_preprocessed')  # preprocessed image path
+        elif os.path.exists(os.path.join(data_path, 'train')):
+            self.subfolder_split = True
+            self.path_images = os.path.join(data_path, mode)
+            self.path_preprocessed = os.path.join(data_path, 'images_preprocessed')
+            if not os.path.exists(self.path_preprocessed):
+                os.mkdir(self.path_preprocessed)
+            self.path_preprocessed = os.path.join(data_path, 'images_preprocessed', mode)
+            if not os.path.exists(self.path_preprocessed):
+                os.mkdir(self.path_preprocessed)
+        else:
+            raise FileNotFoundError('Mini-Imagenet data not found. '
+                                    'Please add images in one of the following folder structures:'
+                                    './data/miniimagenet/images'
+                                    './data/miniimagenet/{train}{test}{val}'
+                                    'or specify --data_path in the arguments.'
+                                    )
 
-        csvdata = [self.loadCSV(os.path.join(data_path, 'miniimagenet', mode + '.csv'))]  # csv path
+        csvdata = [self.loadCSV(os.path.join(data_path, mode + '.csv'))]  # csv path
 
         # check if we have the images
         if not os.listdir(self.path_images):
-            raise FileNotFoundError('Mini-Imagenet data not found. Please put the images in the folder '
-                                    './data/miniimagenet/images or specify --data_path in the arguments.')
+            raise FileNotFoundError('Mini-Imagenet data not found. '
+                                    'Please add images in one of the following folder structures:'
+                                    './data/miniimagenet/images'
+                                    './data/miniimagenet/{train}{test}{val}'
+                                    'or specify --data_path in the arguments.'
+                                    )
 
         self.data = []
         self.img2label = {}
@@ -158,22 +180,34 @@ class MiniImagenet(Dataset):
             query_y_relative[query_y == l] = idx
 
         # pre-process the images and save as numpy arrays (makes the code run much faster afterwards)
+        # - for the support set
         for i, filename in enumerate(filenames_support_x):
-            filename_preprocesses = filename[:-4] + '_preprocesses_{}'.format(self.imsize)
-            path_preprocesses = os.path.join(self.path_preprocessed, filename_preprocesses)
-            if not os.path.exists(path_preprocesses + '.npy'):
-                support_x[i] = self.transform(os.path.join(self.path_images, filename))
-                np.save(path_preprocesses, support_x[i].numpy())
+            filename_preprocessed = filename[:-4] + '_preprocessed_{}'.format(self.imsize)
+            path_preprocessed = os.path.join(self.path_preprocessed, filename[:9], filename_preprocessed)
+            if not os.path.exists(path_preprocessed + '.npy'):
+                if not os.path.exists(os.path.join(self.path_preprocessed, filename[:9])):
+                    os.mkdir(os.path.join(self.path_preprocessed, filename[:9]))
+                if self.subfolder_split:
+                    support_x[i] = self.transform(os.path.join(self.path_images, filename[:9], filename))
+                else:
+                    support_x[i] = self.transform(os.path.join(self.path_images, filename))
+                np.save(path_preprocessed, support_x[i].numpy())
             else:
-                support_x[i] = torch.from_numpy(np.load(path_preprocesses + '.npy'))
-        for i, path in enumerate(filenames_query_x):
-            filename_preprocesses = path[:-4] + '_preprocesses_{}'.format(self.imsize)
-            path_preprocesses = os.path.join(self.path_preprocessed, filename_preprocesses)
-            if not os.path.exists(path_preprocesses + '.npy'):
-                query_x[i] = self.transform(os.path.join(self.path_images, path))
-                np.save(path_preprocesses, query_x[i].numpy())
+                support_x[i] = torch.from_numpy(np.load(path_preprocessed + '.npy'))
+        # - same thing for the query set
+        for i, filename in enumerate(filenames_query_x):
+            filename_preprocessed = filename[:-4] + '_preprocessed_{}'.format(self.imsize)
+            path_preprocessed = os.path.join(self.path_preprocessed, filename[:9], filename_preprocessed)
+            if not os.path.exists(path_preprocessed + '.npy'):
+                if not os.path.exists(os.path.join(self.path_preprocessed, filename[:9])):
+                    os.mkdir(os.path.join(self.path_preprocessed, filename[:9]))
+                if self.subfolder_split:
+                    query_x[i] = self.transform(os.path.join(self.path_images, filename[:9], filename))
+                else:
+                    query_x[i] = self.transform(os.path.join(self.path_images, filename))
+                np.save(path_preprocessed, query_x[i].numpy())
             else:
-                query_x[i] = torch.from_numpy(np.load(path_preprocesses + '.npy'))
+                query_x[i] = torch.from_numpy(np.load(path_preprocessed + '.npy'))
 
         return support_x, torch.LongTensor(support_y_relative), query_x, torch.LongTensor(query_y_relative)
 

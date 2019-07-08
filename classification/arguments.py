@@ -38,13 +38,14 @@ def parse_args():
 
     #
 
-    parser.add_argument('--data_path', type=str, default='./data', help='folder which contains image data')
-    parser.add_argument('--rerun', action='store_true',
+    parser.add_argument('--data_path', type=str, default='./data/miniimagenet/', help='folder which contains image data')
+    parser.add_argument('--rerun', action='store_true', default=False,
                         help='Re-run experiment (will override previously saved results)')
 
     args = parser.parse_args()
 
     # use the GPU if available
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print('Running on device: {}'.format(args.device))
 
     return args
