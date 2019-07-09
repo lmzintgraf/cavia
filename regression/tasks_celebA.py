@@ -29,8 +29,8 @@ class CelebADataset:
 
         self.device = device
 
-        if os.path.isdir('./data/CelebA/'):
-            data_root = './data/CelebA/'
+        if os.path.isdir('/home/scratch/luiraf/work/data/celeba/'):
+            data_root = '/home/scratch/luiraf/work/data/celeba/'
         else:
             raise FileNotFoundError('Can\'t find celebrity faces.')
 
@@ -135,85 +135,82 @@ class CelebADataset:
                     test_imgs.append(row[0])
         return train_imgs, valid_imgs, test_imgs
 
+    def visualise(self, task_family_train, task_family_test, model, args, i_iter):
+        plt.figure(figsize=(14, 14))
 
-def visualise(task_family_train, task_family_test, model, config, i_iter):
-    plt.figure(figsize=(14, 14))
+        for i, img_path in enumerate(task_family_train.image_files[:6] + task_family_test.image_files[:6]):
 
-    for i, img_path in enumerate(task_family_train.image_files[:6] + task_family_test.image_files[:6]):
+            # randomly pick image
+            img = task_family_train.get_image(img_path)
+            # get target function
+            target_func = task_family_train.get_target_function(img)
+            # pick data points for training
+            pixel_inputs = task_family_train.sample_inputs(args.k_shot_eval, args.use_ordered_pixels)
+            pixel_targets = target_func(pixel_inputs)
+            # update model
+            if not args.maml:
+                model.reset_context_params()
+                for _ in range(args.num_inner_updates):
+                    pixel_pred = model(pixel_inputs)
+                    loss = F.mse_loss(pixel_pred, pixel_targets)
+                    grad = torch.autograd.grad(loss, model.context_params, create_graph=not args.first_order)[0]
+                    model.context_params = model.context_params - args.lr_inner * grad
+            else:
+                for _ in range(args.num_inner_updates):
+                    pixel_pred = model(pixel_inputs)
+                    loss = F.mse_loss(pixel_pred, pixel_targets)
+                    params = [w for w in model.weights] + [b for b in model.biases] + [model.task_context]
+                    grads = torch.autograd.grad(loss, params)
+                    for k in range(len(model.weights)):
+                        model.weights[k] = model.weights[k] - args.lr_inner * grads[k].detach()
+                    for j in range(len(model.biases)):
+                        model.biases[j] = model.biases[j] - args.lr_inner * grads[k + j + 1].detach()
+                    model.task_context = model.task_context - args.lr_inner * grads[k + j + 2].detach()
 
-        # randomly pick image
-        img = task_family_train.get_image(img_path)
-        # get target function
-        target_func = task_family_train.get_target_function(img)
-        # pick data points for training
-        pixel_inputs = task_family_train.sample_inputs(config['k_shot_eval'], config['order_pixels'])
-        pixel_targets = target_func(pixel_inputs)
-        # update model
-        if config['method'] == 'cavia':
-            model.reset_context_params()
-            for _ in range(config['num_inner_updates']):
-                pixel_pred = model(pixel_inputs)
-                loss = F.mse_loss(pixel_pred, pixel_targets)
-                grad = torch.autograd.grad(loss, model.context_params, create_graph=not config['first_order'])[0]
-                model.context_params = model.context_params - config['lr_inner'] * grad
-        elif config['method'] == 'maml':
-            for _ in range(config['num_inner_updates']):
-                pixel_pred = model(pixel_inputs)
-                loss = F.mse_loss(pixel_pred, pixel_targets)
-                params = [w for w in model.weights] + [b for b in model.biases] + [model.task_context]
-                grads = torch.autograd.grad(loss, params)
-                for k in range(len(model.weights)):
-                    model.weights[k] = model.weights[k] - config['lr_inner'] * grads[k].detach()
-                for j in range(len(model.biases)):
-                    model.biases[j] = model.biases[j] - config['lr_inner'] * grads[k + j + 1].detach()
-                model.task_context = model.task_context - config['lr_inner'] * grads[k + j + 2].detach()
-        else:
-            raise NotImplementedError('Wtf you doin')
+            # plot context
+            plt.subplot(6, 6, (i % 6) * 6 + 1 + int(i > 5) * 3)
+            # img = (img + 1) / 2
+            plt.imshow(img)
+            plt.xticks([])
+            plt.yticks([])
 
-        # plot context
-        plt.subplot(6, 6, (i % 6) * 6 + 1 + int(i > 5) * 3)
-        # img = (img + 1) / 2
-        plt.imshow(img)
-        plt.xticks([])
-        plt.yticks([])
+            # context
+            plt.subplot(6, 6, (i % 6) * 6 + 2 + int(i > 5) * 3)
+            img_copy = copy.copy(img) * 0
+            # de-normalise coordinates
+            pixel_inputs *= 32
+            pixel_inputs = pixel_inputs.long()
+            img_copy[pixel_inputs[:, 0], pixel_inputs[:, 1]] = img[pixel_inputs[:, 0], pixel_inputs[:, 1]]
+            plt.imshow(img_copy)
+            plt.xticks([])
+            plt.yticks([])
 
-        # context
-        plt.subplot(6, 6, (i % 6) * 6 + 2 + int(i > 5) * 3)
-        img_copy = copy.copy(img) * 0
-        # de-normalise coordinates
-        pixel_inputs *= 32
-        pixel_inputs = pixel_inputs.long()
-        img_copy[pixel_inputs[:, 0], pixel_inputs[:, 1]] = img[pixel_inputs[:, 0], pixel_inputs[:, 1]]
-        plt.imshow(img_copy)
-        plt.xticks([])
-        plt.yticks([])
+            if i == 0:
+                plt.title('TRAIN', fontsize=20)
+            if i == 6:
+                plt.title('TEST', fontsize=20)
 
-        if i == 0:
-            plt.title('TRAIN', fontsize=20)
-        if i == 6:
-            plt.title('TEST', fontsize=20)
+            # predict
+            plt.subplot(6, 6, (i % 6) * 6 + 3 + int(i > 5) * 3)
+            input_range = task_family_train.get_input_range()
+            img_pred = model(input_range).view(task_family_train.img_size).cpu().detach().numpy()
+            # img_pred = (img_pred + 1) / 2
+            img_pred[img_pred < 0] = 0
+            img_pred[img_pred > 1] = 1
+            plt.imshow(img_pred)
+            plt.xticks([])
+            plt.yticks([])
 
-        # predict
-        plt.subplot(6, 6, (i % 6) * 6 + 3 + int(i > 5) * 3)
-        input_range = task_family_train.get_input_range()
-        img_pred = model(input_range).view(task_family_train.img_size).cpu().detach().numpy()
-        # img_pred = (img_pred + 1) / 2
-        img_pred[img_pred < 0] = 0
-        img_pred[img_pred > 1] = 1
-        plt.imshow(img_pred)
-        plt.xticks([])
-        plt.yticks([])
+        if not os.path.isdir('{}/celeba_result_plots/'.format(self.code_root)):
+            os.mkdir('{}/celeba_result_plots/'.format(self.code_root))
 
-    if not os.path.isdir('{}/celeba_result_plots/'.format(self.code_root)):
-        os.mkdir('{}/celeba_result_plots/'.format(self.code_root))
-
-    plt.tight_layout()
-    plt.savefig('{}/celeba_result_plots/{}_c{}_k{}_o{}_u{}_lr{}_{}'.format(self.code_root,
-                                                                           config['method'],
-                                                                           config['num_context_params'],
-                                                                           config['k_meta_train'],
-                                                                           config['order_pixels'],
-                                                                           config['num_inner_updates'],
-                                                                           int(10 * config['lr_inner']),
-                                                                           i_iter))
-    plt.close()
+        plt.tight_layout()
+        plt.savefig('{}/celeba_result_plots/{}_c{}_k{}_o{}_u{}_lr{}_{}'.format(self.code_root,
+                                                                               int(args.maml),
+                                                                               args.num_context_params,
+                                                                               args.k_meta_train,
+                                                                               args.use_ordered_pixels,
+                                                                               args.num_inner_updates,
+                                                                               int(10 * args.lr_inner),
+                                                                               i_iter))
+        plt.close()

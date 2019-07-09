@@ -166,8 +166,8 @@ def run(args, log_interval=5000, rerun=False):
 
             # visualise results
             if args.task == 'celeba':
-                tasks_celebA.visualise(task_family_train, task_family_test, copy.deepcopy(logger.best_valid_model),
-                                       args, i_iter)
+                task_family_train.visualise(task_family_train, task_family_test, copy.deepcopy(logger.best_valid_model),
+                                            args, i_iter)
 
             # print current results
             logger.print_info(i_iter, start_time)
@@ -177,7 +177,6 @@ def run(args, log_interval=5000, rerun=False):
 
 
 def eval_cavia(args, model, task_family, num_updates, n_tasks=100, return_gradnorm=False):
-
     # get the task family
     input_range = task_family.get_input_range().to(args.device)
 

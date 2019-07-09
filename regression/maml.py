@@ -42,9 +42,9 @@ def run(args, log_interval=5000, rerun=False):
         task_family_valid = tasks_sine.RegressionTasksSinusoidal()
         task_family_test = tasks_sine.RegressionTasksSinusoidal()
     elif args.task == 'celeba':
-        task_family_train = tasks_celebA.CelebADataset('train')
-        task_family_valid = tasks_celebA.CelebADataset('valid')
-        task_family_test = tasks_celebA.CelebADataset('test')
+        task_family_train = tasks_celebA.CelebADataset('train', args.device)
+        task_family_valid = tasks_celebA.CelebADataset('valid', args.device)
+        task_family_test = tasks_celebA.CelebADataset('test', args.device)
     else:
         raise NotImplementedError
 
@@ -90,11 +90,8 @@ def run(args, log_interval=5000, rerun=False):
 
             for _ in range(args.num_inner_updates):
 
-                # copy the current model (we use this to compute the inner-loop update)
-                model_outer = model_inner
-
-                # forward through network
-                outputs = model_outer(train_inputs)
+                # make prediction using the current model
+                outputs = model_inner(train_inputs)
 
                 # get targets
                 targets = target_functions[t](train_inputs)
@@ -104,23 +101,25 @@ def run(args, log_interval=5000, rerun=False):
                 # compute loss for current task
                 loss_task = F.mse_loss(outputs, targets)
 
-                # update private parts of network and keep correct computation graph
-                params = [w for w in model_outer.weights] + [b for b in model_outer.biases] + [model_outer.task_context]
+                # compute the gradient wrt current model
+                params = [w for w in model_inner.weights] + [b for b in model_inner.biases] + [model_inner.task_context]
                 grads = torch.autograd.grad(loss_task, params, create_graph=True, retain_graph=True)
+
+                # make an update on the inner model using the current model (to build up computation graph)
                 for i in range(len(model_inner.weights)):
                     if not args.first_order:
-                        model_inner.weights[i] = model_outer.weights[i] - args.lr_inner * grads[i]
+                        model_inner.weights[i] = model_inner.weights[i] - args.lr_inner * grads[i]
                     else:
-                        model_inner.weights[i] = model_outer.weights[i] - args.lr_inner * grads[i].detach()
+                        model_inner.weights[i] = model_inner.weights[i] - args.lr_inner * grads[i].detach()
                 for j in range(len(model_inner.biases)):
                     if not args.first_order:
-                        model_inner.biases[j] = model_outer.biases[j] - args.lr_inner * grads[i + j + 1]
+                        model_inner.biases[j] = model_inner.biases[j] - args.lr_inner * grads[i + j + 1]
                     else:
-                        model_inner.biases[j] = model_outer.biases[j] - args.lr_inner * grads[i + j + 1].detach()
+                        model_inner.biases[j] = model_inner.biases[j] - args.lr_inner * grads[i + j + 1].detach()
                 if not args.first_order:
-                    model_inner.task_context = model_outer.task_context - args.lr_inner * grads[i + j + 2]
+                    model_inner.task_context = model_inner.task_context - args.lr_inner * grads[i + j + 2]
                 else:
-                    model_inner.task_context = model_outer.task_context - args.lr_inner * grads[i + j + 2].detach()
+                    model_inner.task_context = model_inner.task_context - args.lr_inner * grads[i + j + 2].detach()
 
             # ------------ compute meta-gradient on test loss of current task ------------
 
@@ -192,7 +191,7 @@ def run(args, log_interval=5000, rerun=False):
 
             # visualise results
             if args.task == 'celeba':
-                tasks_celebA.visualise(task_family_train, task_family_test, copy.copy(logger.best_valid_model),
+                task_family_train.visualise(task_family_train, task_family_test, copy.copy(logger.best_valid_model),
                                        args, i_iter)
 
             # print current results
