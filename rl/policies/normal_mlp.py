@@ -100,6 +100,7 @@ class CaviaMLPPolicy(Policy, nn.Module):
         for i in range(1, self.num_layers):
             output = F.linear(output, weight=params['layer{0}.weight'.format(i)],
                               bias=params['layer{0}.bias'.format(i)])
+            output = self.nonlinearity(output)
 
         # last layer outputs mean; scale is a learned param independent of the input
         mu = F.linear(output, weight=params['mu.weight'], bias=params['mu.bias'])
