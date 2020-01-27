@@ -41,7 +41,7 @@ class LinearFeatureBaseline(nn.Module):
                         device=self.linear.weight.device)
         for _ in range(5):
             try:
-                coeffs, _ = torch.gels(
+                coeffs, _ = torch.lstsq(
                     torch.matmul(featmat.t(), returns),
                     torch.matmul(featmat.t(), featmat) + reg_coeff * eye
                 )

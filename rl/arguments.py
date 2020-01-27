@@ -11,7 +11,6 @@ def parse_args():
 
     # General
     parser.add_argument('--env-name', type=str,
-                        # default='HalfCheetahDir-v1',
                         default='2DNavigation-v0',
                         help='name of the environment')
     parser.add_argument('--gamma', type=float, default=0.95,
@@ -19,13 +18,10 @@ def parse_args():
     parser.add_argument('--tau', type=float, default=1.0,
                         help='value of the discount factor for GAE')
     parser.add_argument('--first-order', action='store_true',
-                        help='use the first-order approximation of MAML/CAVIA')
-    parser.add_argument('--num-context-params', type=int, default=2,
+                        help='use the first-order approximation of CAVIA')
+    parser.add_argument('--num-context-params', type=int, default=50, #default 2
                         help='number of context parameters')
 
-    # Run MAML instead of CAVIA
-    parser.add_argument('--maml', action='store_true', default=False,
-                        help='turn on MAML')
     # Policy network (relu activation function)
     parser.add_argument('--hidden-size', type=int, default=100,
                         help='number of hidden units per layer')
@@ -45,13 +41,13 @@ def parse_args():
     # Task-specific
     parser.add_argument('--fast-batch-size', type=int, default=20,
                         help='number of rollouts for each individual task ()')
-    parser.add_argument('--fast-lr', type=float, default=1.0,
-                        help='learning rate for the 1-step gradient update of MAML/CAVIA')
+    parser.add_argument('--fast-lr', type=float, default=10, #default 1.0
+                        help='learning rate for the 1-step gradient update of CAVIA')
 
     # Optimization
     parser.add_argument('--num-batches', type=int, default=500,
                         help='number of batches')
-    parser.add_argument('--meta-batch-size', type=int, default=20,
+    parser.add_argument('--meta-batch-size', type=int, default=40,
                         help='number of tasks per batch')
     parser.add_argument('--max-kl', type=float, default=1e-2,
                         help='maximum value for the KL constraint in TRPO')
@@ -80,10 +76,7 @@ def parse_args():
     # use the GPU if available
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    args.output_folder = 'maml' if args.maml else 'cavia'
-
-    if args.maml and not args.halve_test_lr:
-        warnings.warn('You are using MAML and not halving the LR at test time!')
+    args.output_folder = 'cavia'
 
     # Create logs and saves folder if they don't exist
     if not os.path.exists('./logs'):
