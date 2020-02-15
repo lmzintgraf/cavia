@@ -6,6 +6,8 @@ from torch.nn.utils.convert_parameters import (vector_to_parameters,
 from rl_utils.optimization import conjugate_gradient
 from rl_utils.torch_utils import (weighted_mean, detach_distribution, weighted_normalize)
 
+import torch.optim as optim
+
 
 class MetaLearner(object):
     """Meta-learner
@@ -27,17 +29,41 @@ class MetaLearner(object):
         (https://arxiv.org/abs/1502.05477)
     """
 
-    def __init__(self, sampler, policy, baseline, gamma=0.95,
-                 fast_lr=0.5, tau=1.0, device='cpu'):
+    def __init__(self, sampler, policy, baseline, context_encoder=None, 
+    policy_lr=3e-4, context_lr=3e-4, gamma=0.95, fast_lr=0.5, tau=1.0, device='cpu'):
         self.sampler = sampler
         self.policy = policy
         self.baseline = baseline
+        self.context_encoder = context_encoder
         self.gamma = gamma
-        self.fast_lr = fast_lr
+        self.policy_lr = policy_lr
+        self.context_lr = context_lr
         self.tau = tau
         self.to(device)
+        
+        self.policy_optimizer = optim.Adam(
+            self.policy.parameters(),
+            lr=self.policy_lr,
+        )
+        self.context_optimizer = optim.Adam(
+            self.context_encoder.network.parameters(),
+            lr=self.context_lr,
+        )
 
-    def inner_loss(self, episodes, params=None):
+    def sample_z(self, episodes):
+        self.context_encoder.sample_z()
+
+        task_z = self.context_encoder.z
+        task_z = [z.repeat(episodes.observations.shape[1], 1) for z in task_z]
+        task_z = torch.cat(task_z, dim=0)
+        task_z = task_z.unsqueeze(0)
+        task_z = task_z.repeat(episodes.observations.shape[0],1,1)
+
+        in_ = torch.cat([episodes.observations, task_z], dim=2)
+
+        return in_
+
+    def inner_loss(self, episodes, in_=None, params=None):
         """Compute the inner loss for the one-step gradient update. The inner 
         loss is REINFORCE with baseline [2], computed on advantages estimated 
         with Generalized Advantage Estimation (GAE, [3]).
@@ -46,7 +72,8 @@ class MetaLearner(object):
         advantages = episodes.gae(values, tau=self.tau)
         advantages = weighted_normalize(advantages, weights=episodes.mask)
 
-        pi = self.policy(episodes.observations, params=params)
+        pi = self.policy(in_, params=params)
+
         log_probs = pi.log_prob(episodes.actions)
         if log_probs.dim() > 2:
             log_probs = torch.sum(log_probs, dim=2)
@@ -56,82 +83,115 @@ class MetaLearner(object):
         return loss
 
     def adapt(self, episodes, first_order=False, params=None, lr=None):
-        """Adapt the parameters of the policy network to a new task, from 
-        sampled trajectories `episodes`, with a one-step gradient update [1].
-        """
 
-        if lr is None:
-            lr = self.fast_lr
+        z_after = self.context_encoder.infer_posterior()
+        self.context_encoder.sample_z()
 
-        # Fit the baseline to the training episodes
-        self.baseline.fit(episodes)
+        in_ = self.sample_z(episodes)
+       
+        self.baseline.fit(episodes)                 
+        reinforce_loss = self.inner_loss(episodes, in_)
+        
+        # KL constraint on z if probabilistic
+        self.context_optimizer.zero_grad()
+        
+        kl_div = self.context_encoder.compute_kl_div()
+        kl_loss = self.context_encoder.kl_lambda * kl_div.requires_grad_()
+        kl_loss.backward(retain_graph=True)
 
-        # Get the loss on the training episodes
-        loss = self.inner_loss(episodes, params=params)
+        # Policy loss 
+        # self.policy_optimizer.zero_grad()
+        reinforce_loss.backward()
+        # self.policy_optimizer.step()
 
-        # Get the new parameters after a one-step gradient update
-        params = self.policy.update_params(loss, step_size=lr, first_order=first_order, params=params)
+        self.context_optimizer.step()
+        
+        loss = kl_loss + reinforce_loss
+        losses = (reinforce_loss.item(), kl_loss.item(), loss.item())
 
-        return params, loss
+        return losses, z_after
 
-    def sample(self, tasks, first_order=False):
+    def sample(self, tasks, episodes=None, first_order=False):
         """Sample trajectories (before and after the update of the parameters) 
         for all the tasks `tasks`.
         """
+
         episodes = []
         losses = []
+        z_train = []
         for task in tasks:
             self.sampler.reset_task(task)
-            self.policy.reset_context()
-            train_episodes = self.sampler.sample(self.policy, gamma=self.gamma)
-            # inner loop (for CAVIA, this only updates the context parameters)
-            params, loss = self.adapt(train_episodes, first_order=first_order)
-            # rollouts after inner loop update
-            valid_episodes = self.sampler.sample(self.policy, params=params, gamma=self.gamma)
-            episodes.append((train_episodes, valid_episodes))
-            losses.append(loss.item())
+            
+            # initialize cT = {}
+            self.context_encoder.clear_z()
+            
+            # collect rollout T_train
+            train_episodes = self.sampler.sample(
+                policy=self.policy, 
+                context_encoder=self.context_encoder,
+                gamma=self.gamma
+            )
 
-        return episodes, losses
+            # inner loop
+            loss, z = self.adapt(train_episodes)
+
+            # sample new z
+            self.context_encoder.sample_z()
+
+            # collect rollout T_test
+            valid_episodes = self.sampler.sample(
+                policy=self.policy, 
+                context_encoder=self.context_encoder,
+                gamma=self.gamma
+            )
+            
+            episodes.append((train_episodes, valid_episodes))
+            losses.append(loss)
+            z_train.append(z)
+
+        return episodes, losses, z_train
 
     def test(self, tasks, num_steps, batch_size, halve_lr):
         """Sample trajectories (before and after the update of the parameters)
         for all the tasks `tasks`.batchsize
         """
         episodes_per_task = []
+        z_test = []
         for task in tasks:
 
-            # reset context params (for cavia) and task
-            self.policy.reset_context()
             self.sampler.reset_task(task)
-
-            # start with blank params
-            params = None
+            self.context_encoder.clear_z()
 
             # gather some initial experience and log performance
-            test_episodes = self.sampler.sample(self.policy, gamma=self.gamma, params=params, batch_size=batch_size)
+            test_episodes = self.sampler.sample(
+                self.policy, 
+                gamma=self.gamma, 
+                context_encoder=self.context_encoder,
+                batch_size=batch_size
+            )
 
             # initialise list which will log all rollouts for the current task
             curr_episodes = [test_episodes]
-
+            z_step = []
             for i in range(1, num_steps + 1):
-
-                # lower learning rate after first update (for MAML, as described in their paper)
-                if i == 1 and halve_lr:
-                    lr = self.fast_lr / 2
-                else:
-                    lr = self.fast_lr
-
-                # inner-loop update
-                params, loss = self.adapt(test_episodes, first_order=True, params=params, lr=lr)
+                
+                z = self.context_encoder.infer_posterior()
 
                 # get new rollouts
-                test_episodes = self.sampler.sample(self.policy, gamma=self.gamma, params=params, batch_size=batch_size)
+                test_episodes = self.sampler.sample(
+                    self.policy, 
+                    gamma=self.gamma, 
+                    context_encoder=self.context_encoder,
+                    batch_size=batch_size
+                )
                 curr_episodes.append(test_episodes)
+                z_step.append(z)
 
+            z_test.append(z_step)
             episodes_per_task.append(curr_episodes)
 
-        self.policy.reset_context()
-        return episodes_per_task
+        self.context_encoder.clear_z()
+        return episodes_per_task, z_test
 
     def kl_divergence(self, episodes, old_pis=None):
         kls = []
@@ -141,9 +201,11 @@ class MetaLearner(object):
         for (train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
 
             # this is the inner-loop update
-            self.policy.reset_context()
-            params, _ = self.adapt(train_episodes)
-            pi = self.policy(valid_episodes.observations, params=params)
+            # self.policy.reset_context()
+            # _ = self.adapt(train_episodes)
+
+            in_ = self.sample_z(valid_episodes)
+            pi = self.policy(in_)
 
             if old_pi is None:
                 old_pi = detach_distribution(pi)
@@ -180,13 +242,13 @@ class MetaLearner(object):
         for (train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
 
             # do inner-loop update
-            self.policy.reset_context()
-            params, _ = self.adapt(train_episodes)
+            # self.policy.reset_context()
+            # _ = self.adapt(train_episodes)
 
             with torch.set_grad_enabled(old_pi is None):
 
-                # get action values after inner-loop update
-                pi = self.policy(valid_episodes.observations, params=params)
+                in_ = self.sample_z(valid_episodes)
+                pi = self.policy(in_)
                 pis.append(detach_distribution(pi))
 
                 if old_pi is None:
@@ -218,7 +280,9 @@ class MetaLearner(object):
         """Meta-optimization step (ie. update of the initial parameters), based 
         on Trust Region Policy Optimization (TRPO, [4]).
         """
+        
         old_loss, _, old_pis = self.surrogate_loss(episodes)
+
         # this part will take higher order gradients through the inner loop:
         grads = torch.autograd.grad(old_loss, self.policy.parameters())
         grads = parameters_to_vector(grads)
@@ -254,4 +318,5 @@ class MetaLearner(object):
     def to(self, device, **kwargs):
         self.policy.to(device, **kwargs)
         self.baseline.to(device, **kwargs)
+        self.context_encoder.to(device, **kwargs)
         self.device = device

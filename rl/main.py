@@ -15,8 +15,10 @@ from arguments import parse_args
 from baseline import LinearFeatureBaseline
 from metalearner import MetaLearner
 from policies.categorical_mlp import CategoricalMLPPolicy
-from policies.normal_mlp import NormalMLPPolicy, CaviaMLPPolicy
+from policies.normal_mlp import NormalMLPPolicy, CaviaMLPPolicy, FlattenMlp
 from sampler import BatchSampler
+
+from context import ContextEncoder
 
 
 def get_returns(episodes_per_task):
@@ -66,7 +68,7 @@ def main(args):
                                             '2DNavigation-v0'])
 
     # subfolders for logging
-    method_used = 'cavia'
+    method_used = 'experiment'
     num_context_params = str(args.num_context_params) + '_' 
     output_name = num_context_params + 'lr=' + str(args.fast_lr) + 'tau=' + str(args.tau)
     output_name += '_' + datetime.datetime.now().strftime('%d_%m_%Y_%H_%M_%S')
@@ -93,92 +95,139 @@ def main(args):
         config.update(device=args.device.type)
         json.dump(config, f, indent=2)
 
-    sampler = BatchSampler(args.env_name, 
-                           batch_size = args.fast_batch_size, 
-                           num_workers = args.num_workers,
-                           device = args.device, 
-                           seed = args.seed)
+    sampler = BatchSampler(
+        args.env_name, 
+        batch_size = args.fast_batch_size, 
+        num_workers = args.num_workers,
+        device = args.device, 
+        seed = args.seed
+    )
+
+    # instantiate networks
+    obs_dim, action_dim, reward_dim = sampler.get_dim()
+    latent_dim = args.latent_size
+    context_encoder_input_dim = obs_dim + action_dim + reward_dim
+    context_encoder_output_dim = latent_dim * 2 if args.information_bottleneck else latent_dim
 
     if continuous_actions:
-        policy = CaviaMLPPolicy(
-            int(np.prod(sampler.envs.observation_space.shape)),
-            int(np.prod(sampler.envs.action_space.shape)),
-            hidden_sizes=(args.hidden_size,) * args.num_layers,
-            num_context_params=args.num_context_params,
+        policy = FlattenMlp(
+            obs_dim + latent_dim,
+            action_dim,
+            hidden_sizes=(args.hidden_size,) * args.num_layers
+        )
+
+        context_network = FlattenMlp(
+            context_encoder_input_dim,
+            context_encoder_output_dim,
+            hidden_sizes=(args.hidden_size,) * 3
+        )
+
+        context = ContextEncoder(
+            latent_dim,
+            context_network,
+            args.information_bottleneck,
             device=args.device
         )
+
     else:
         raise NotImplementedError
 
     # initialise baseline
-    baseline = LinearFeatureBaseline(int(np.prod(sampler.envs.observation_space.shape)))
+    baseline = LinearFeatureBaseline(obs_dim)
 
     # initialise meta-learner
-    metalearner = MetaLearner(sampler, 
-                              policy, 
-                              baseline, 
-                              gamma = args.gamma, 
-                              fast_lr = args.fast_lr, 
-                              tau = args.tau,
-                              device = args.device)
+    metalearner = MetaLearner(
+        sampler,
+        policy,
+        baseline, 
+        context_encoder = context,
+        gamma = args.gamma, 
+        fast_lr = args.fast_lr, 
+        policy_lr = args.policy_lr,
+        context_lr = args.context_lr,
+        tau = args.tau,
+        device = args.device
+    )
 
     for batch in range(args.num_batches):
-        # get a batch of tasks
+        # sample a batch of tasks
         tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
 
         # do the inner-loop update for each task
         # this returns training (before update) and validation (after update) episodes
-        episodes, inner_losses = metalearner.sample(tasks, first_order=args.first_order)
+        episodes, inner_losses, z_train = metalearner.sample(tasks, episodes=args.episodes, first_order=args.first_order)
 
         # take the meta-gradient step
-        outer_loss = metalearner.step(episodes, 
-                                      max_kl = args.max_kl, 
-                                      cg_iters = args.cg_iters,
-                                      cg_damping = args.cg_damping, 
-                                      ls_max_steps = args.ls_max_steps,
-                                      ls_backtrack_ratio = args.ls_backtrack_ratio)
+        outer_loss = metalearner.step(
+            episodes, 
+            max_kl = args.max_kl, 
+            cg_iters = args.cg_iters,
+            cg_damping = args.cg_damping, 
+            ls_max_steps = args.ls_max_steps,
+            ls_backtrack_ratio = args.ls_backtrack_ratio
+        )
 
         # ---------- logging ----------
         curr_returns = total_rewards(episodes, interval=True)
         print('Return after update: ', curr_returns[0][1])
-
+        
         # Tensorboard
+
+        # Actions mean per batch of episodes
         writer.add_scalar('policy/actions_train', episodes[0][0].actions.mean(), batch)
         writer.add_scalar('policy/actions_test', episodes[0][1].actions.mean(), batch)
 
+        # Reward 
         writer.add_scalar('running_returns/before_update', curr_returns[0][0], batch)
         writer.add_scalar('running_returns/after_update', curr_returns[0][1], batch)
 
+        # Confidence interval of the mean 
         writer.add_scalar('running_cfis/before_update', curr_returns[1][0], batch)
         writer.add_scalar('running_cfis/after_update', curr_returns[1][1], batch)
 
-        writer.add_scalar('loss/inner_rl', np.mean(inner_losses), batch)
+        # Loss
+        writer.add_scalar('loss/reinforce', np.mean(inner_losses, axis=0)[0], batch)
+        writer.add_scalar('loss/kl_divergence', np.mean(inner_losses, axis=0)[1], batch)
+        writer.add_scalar('loss/inner_rl', np.mean(inner_losses, axis=0)[2], batch)
         writer.add_scalar('loss/outer_rl', outer_loss.item(), batch)
 
-        notifier.notify(title='', 
-                        returnAfter=round(curr_returns[0][1], 4), 
-                        T_innerLoss=round(np.mean(inner_losses), 4), 
-                        T_outerLoss=round(outer_loss.item(), 4))
+        # Inference
+        writer.add_scalar('inference_train/z_means', np.mean(z_train, axis=0)[0], batch)
+        writer.add_scalar('inference_train/z_vars', np.mean(z_train, axis=0)[1], batch)
+
+
+        notifier.notify(
+            title='', 
+            returnAfter=round(curr_returns[0][1], 4), 
+            T_innerLoss=round(np.mean(inner_losses), 4), 
+            T_outerLoss=round(outer_loss.item(), 4)
+        )
 
         # ----- evaluation -----
         # evaluate for multiple update steps
         if batch % args.test_freq == 0:
             test_tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
-            test_episodes = metalearner.test(test_tasks, 
-                                             num_steps = args.num_test_steps,
-                                             batch_size = args.test_batch_size, 
-                                             halve_lr = args.halve_test_lr)
+            test_episodes, z_test = metalearner.test(
+                test_tasks, 
+                num_steps = args.num_test_steps,
+                batch_size = args.test_batch_size, 
+                halve_lr = args.halve_test_lr
+            )
             all_returns = total_rewards(test_episodes, interval=True)
 
             for num in range(args.num_test_steps + 1):
                 writer.add_scalar('evaluation_rew/avg_rew ' + str(num), all_returns[0][num], batch)
                 writer.add_scalar('evaluation_cfi/avg_rew ' + str(num), all_returns[1][num], batch)
+                writer.add_scalar('evaluation_z_means/z_mean ' + str(num), np.mean(z_test[num], axis=0)[0], batch)
+                writer.add_scalar('evaluation_z_vars/z_var ' + str(num), np.mean(z_test[num], axis=0)[1], batch)
 
             print('Inner RL loss:', np.mean(inner_losses))
             print('Outer RL loss:', outer_loss.item())
-            notifier.notify(title='', 
-                            E_innerLoss=round(np.mean(inner_losses), 4), 
-                            E_outerLoss=round(outer_loss.item(), 4))
+            notifier.notify(
+                title='', 
+                E_innerLoss=round(np.mean(inner_losses), 4), 
+                E_outerLoss=round(outer_loss.item(), 4)
+            )
 
         # ----- save policy network -----
         with open(os.path.join(save_folder, 'policy-{0}.pt'.format(batch)), 'wb') as f:

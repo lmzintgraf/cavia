@@ -52,6 +52,11 @@ class NormalMLPPolicy(Policy):
 
         return Normal(loc=mu, scale=scale)
 
+    def reset_context(self):
+        pass
+    
+
+
 
 class CaviaMLPPolicy(Policy, nn.Module):
     """CAVIA network based on a multi-layer perceptron (MLP), with a
@@ -75,6 +80,7 @@ class CaviaMLPPolicy(Policy, nn.Module):
 
         layer_sizes = (input_size,) + hidden_sizes
         self.add_module('layer{0}'.format(1), nn.Linear(layer_sizes[0] + num_context_params, layer_sizes[1]))
+        
         for i in range(2, self.num_layers):
             self.add_module('layer{0}'.format(i), nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
 
@@ -114,7 +120,7 @@ class CaviaMLPPolicy(Policy, nn.Module):
         network.
         """
 
-        # take the gradient wrt the context params
+        # take the gradient with respect to the context params
         grads = torch.autograd.grad(loss, self.context_params, create_graph=not first_order)[0]
 
         # set correct computation graph
@@ -127,3 +133,9 @@ class CaviaMLPPolicy(Policy, nn.Module):
 
     def reset_context(self):
         self.context_params = torch.zeros(self.num_context_params, requires_grad=True).to(self.device)
+
+
+class FlattenMlp(NormalMLPPolicy):
+    def forward(self, *inputs, **kwargs):
+        flat_inputs = torch.cat(inputs, dim=1)
+        return super().forward(flat_inputs, **kwargs)

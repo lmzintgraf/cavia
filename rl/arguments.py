@@ -11,22 +11,42 @@ def parse_args():
 
     # General
     parser.add_argument('--env-name', type=str,
-                        default='2DNavigation-v0',
+                        default='AntDir-v1',
                         help='name of the environment')
-    parser.add_argument('--gamma', type=float, default=0.95,
+    parser.add_argument('--cavia', action='store_true', default=False,
+                        help='Use CAVIA')
+    parser.add_argument('--gamma', type=float, default=0.99,
                         help='value of the discount factor gamma')
     parser.add_argument('--tau', type=float, default=1.0,
                         help='value of the discount factor for GAE')
     parser.add_argument('--first-order', action='store_true',
-                        help='use the first-order approximation of CAVIA')
-    parser.add_argument('--num-context-params', type=int, default=50, #default 2
-                        help='number of context parameters')
+                        help='use the first-order approximation')
 
     # Policy network (relu activation function)
-    parser.add_argument('--hidden-size', type=int, default=100,
+    parser.add_argument('--hidden-size', type=int, default=300,
                         help='number of hidden units per layer')
     parser.add_argument('--num-layers', type=int, default=2,
                         help='number of hidden layers')
+
+    # Inference network
+    parser.add_argument('--latent-size', type=int, default=5,
+                        help='Dimension of the latent context vector')
+    parser.add_argument('--information-bottleneck', action='store_false', default=True,
+                        help='False makes latent context deterministic')
+    parser.add_argument('--episodes', type=int, default=40,
+                        help='Episodes to accumulate in context trajectory')
+    parser.add_argument('--context-lr', type=float, default=1e-3,
+                        help='learning rate for the context network')
+    parser.add_argument('--policy-lr', type=float, default=1e-3,
+                        help='learning rate for the policy network')
+
+    # CAVIA
+    parser.add_argument('--num-context-params', type=int, default=50,
+                        help='number of context parameters')
+    parser.add_argument('--halve-test-lr', action='store_true', default=False,
+                        help='half LR at test time after one update')
+    parser.add_argument('--fast-lr', type=float, default=1.0, 
+                        help='learning rate for the 1-step gradient update of CAVIA')
 
     # Testing
     parser.add_argument('--test-freq', type=int, default=10,
@@ -35,14 +55,11 @@ def parse_args():
                         help='Number of inner loops in the test set')
     parser.add_argument('--test-batch-size', type=int, default=40,
                         help='batch size (number of trajectories) for testing')
-    parser.add_argument('--halve-test-lr', action='store_true', default=False,
-                        help='half LR at test time after one update')
+
 
     # Task-specific
     parser.add_argument('--fast-batch-size', type=int, default=20,
                         help='number of rollouts for each individual task ()')
-    parser.add_argument('--fast-lr', type=float, default=10, #default 1.0
-                        help='learning rate for the 1-step gradient update of CAVIA')
 
     # Optimization
     parser.add_argument('--num-batches', type=int, default=500,
@@ -61,7 +78,7 @@ def parse_args():
                         help='maximum number of iterations for line search')
 
     # Miscellaneous
-    parser.add_argument('--num-workers', type=int, default=mp.cpu_count() - 1,
+    parser.add_argument('--num-workers', type=int, default=mp.cpu_count(),
                         help='number of workers for trajectories sampling')
     parser.add_argument('--seed', type=int, default=42, help='seed')
     parser.add_argument('--make_deterministic', action='store_true',
@@ -76,7 +93,7 @@ def parse_args():
     # use the GPU if available
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    args.output_folder = 'cavia'
+    args.output_folder = 'cavia' if args.cavia else 'experiment'
 
     # Create logs and saves folder if they don't exist
     if not os.path.exists('./logs'):
