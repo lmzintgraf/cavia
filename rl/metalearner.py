@@ -8,6 +8,23 @@ from rl_utils.torch_utils import (weighted_mean, detach_distribution, weighted_n
 
 import torch.optim as optim
 
+def plot_grad_flow(named_parameters):
+    ave_grads = []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(xmin=0, xmax=len(ave_grads))
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.savefig('grad-flow.png')
+
 
 class MetaLearner(object):
     """Meta-learner
@@ -39,12 +56,9 @@ class MetaLearner(object):
         self.policy_lr = policy_lr
         self.context_lr = context_lr
         self.tau = tau
+        self.kl_lambda = 0.1
         self.to(device)
         
-        self.policy_optimizer = optim.Adam(
-            self.policy.parameters(),
-            lr=self.policy_lr,
-        )
         self.context_optimizer = optim.Adam(
             self.context_encoder.network.parameters(),
             lr=self.context_lr,
@@ -83,33 +97,41 @@ class MetaLearner(object):
         return loss
 
     def adapt(self, episodes, first_order=False, params=None, lr=None):
-
-        z_after = self.context_encoder.infer_posterior()
-        self.context_encoder.sample_z()
-
-        in_ = self.sample_z(episodes)
-       
-        self.baseline.fit(episodes)                 
-        reinforce_loss = self.inner_loss(episodes, in_)
         
+        task_z, z_info = self.context_encoder(episodes.observations, self.context_encoder.context, self.policy)
+        
+
         # KL constraint on z if probabilistic
-        self.context_optimizer.zero_grad()
+        # self.context_optimizer.zero_grad()
         
-        kl_div = self.context_encoder.compute_kl_div()
-        kl_loss = self.context_encoder.kl_lambda * kl_div.requires_grad_()
-        kl_loss.backward(retain_graph=True)
-
-        # Policy loss 
-        # self.policy_optimizer.zero_grad()
-        reinforce_loss.backward()
-        # self.policy_optimizer.step()
-
-        self.context_optimizer.step()
+        kl_div = self.context_encoder.compute_kl_div().requires_grad_()
+        kl_loss = self.kl_lambda * kl_div
+        print(kl_loss)
         
-        loss = kl_loss + reinforce_loss
+        a = list(self.context_encoder.network.parameters())[0].clone()
+        # kl_loss.backward()
+        # self.context_optimizer.step()
+        self.context_encoder.network.update_params(kl_loss, self.context_lr)
+        b = list(self.context_encoder.network.parameters())[0].clone()
+        print(torch.equal(a.data, b.data))
+        
+        print(list(self.context_encoder.network.parameters())[0].grad)
+        
+        # plot_grad_flow(self.context_encoder.network.named_parameters())
+        
+        
+        self.baseline.fit(episodes)               
+        in_ = torch.cat([episodes.observations, task_z], dim=2)
+        reinforce_loss = self.inner_loss(episodes, in_)
+        #reinforce_loss.backward()
+    
+        # self.context_optimizer.step()
+        # self.context_encoder.network.update_params(kl_loss, self.context_lr)
+
+        loss = reinforce_loss - kl_loss
         losses = (reinforce_loss.item(), kl_loss.item(), loss.item())
 
-        return losses, z_after
+        return losses, z_info
 
     def sample(self, tasks, episodes=None, first_order=False):
         """Sample trajectories (before and after the update of the parameters) 

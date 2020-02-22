@@ -27,7 +27,9 @@ class Policy(nn.Module):
         else:
             params = [param for name, param in params.items()]
 
+        print(loss)
         grads = torch.autograd.grad(loss, params, create_graph=not first_order)
+        print(grads)
         updated_params = OrderedDict()
 
         for (name, param), param, grad in zip(self.named_parameters(), params, grads):

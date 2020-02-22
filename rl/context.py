@@ -45,12 +45,12 @@ class ContextEncoder(nn.Module):
         """Reset q(z|c) to the prior sample a new z from the prior."""
 
         # reset distribution over z to the prior
-        mu = torch.zeros(num_tasks, self.latent_dim)
+        mu = torch.zeros(num_tasks, self.latent_dim).to(device=self.device)
         
         if self.use_ib:
-            var = torch.ones(num_tasks, self.latent_dim)
+            var = torch.ones(num_tasks, self.latent_dim).to(device=self.device)
         else:
-            var = torch.zeros(num_tasks, self.latent_dim)
+            var = torch.zeros(num_tasks, self.latent_dim).to(device=self.device)
         
         self.z_means = mu
         self.z_vars = var
@@ -92,7 +92,7 @@ class ContextEncoder(nn.Module):
         """Compute q(z|c) as a function of input context and sample new z from it."""
 
         if context is None:
-            context = self.context.to(device=self.device)
+            context = self.context
         
         # params.shape = (n_tasks, batch_size, transition_size)
         params = self.network(context).sample()
@@ -131,25 +131,30 @@ class ContextEncoder(nn.Module):
         
     def get_action(self, policy, obs, w, params=None, deterministic=False):
         ''' sample action from the policy, conditioned on the task embedding '''
-        z = self.z.to(device=self.device)
+        z = self.z
         z = torch.cat(w*[z])
         in_ = torch.cat([obs, z], dim=1)
         return policy(in_, params=params).sample()
     
-    # def forward(self, obs, context):
-    #     ''' given context, get statistics under the current policy of a set of observations '''
-    #     self.infer_posterior(context)
-    #     self.sample_z()
+    def forward(self, obs, context, policy):
+        ''' given context, get statistics under the current policy of a set of observations '''
+        self.infer_posterior(context)
+        self.sample_z()
 
-    #     task_z = self.z
+        task_z = self.z
 
-    #     t, b, _ = obs.size()
-    #     obs = obs.view(t * b, -1)
-    #     task_z = [z.repeat(b, 1) for z in task_z]
-    #     task_z = torch.cat(task_z, dim=0)
+        # t, b, _ = obs.size()
+        # obs = obs.view(t * b, -1)
+        # task_z = [z.repeat(b, 1) for z in task_z]
+        # task_z = torch.cat(task_z, dim=0)
+        
+        
+        task_z = [z.repeat(obs.shape[1], 1) for z in task_z]
+        task_z = torch.cat(task_z, dim=0)
+        task_z = task_z.unsqueeze(0)
+        task_z = task_z.repeat(obs.shape[0],1,1)
+        in_ = torch.cat([obs, task_z.detach()], dim=2)
 
-    #     # run policy, get log probs and new actions
-    #     in_ = torch.cat([obs, task_z.detach()], dim=1)
-    #     policy_outputs = self.policy(in_)
+        policy_outputs = policy(in_)
 
-    #     return policy_outputs, task_z
+        return task_z, [torch.mean(self.z_means).item(), torch.mean(self.z_vars).item()]

@@ -35,9 +35,9 @@ def parse_args():
                         help='False makes latent context deterministic')
     parser.add_argument('--episodes', type=int, default=40,
                         help='Episodes to accumulate in context trajectory')
-    parser.add_argument('--context-lr', type=float, default=1e-3,
+    parser.add_argument('--context-lr', type=float, default=1e-4,
                         help='learning rate for the context network')
-    parser.add_argument('--policy-lr', type=float, default=1e-3,
+    parser.add_argument('--policy-lr', type=float, default=1e-4,
                         help='learning rate for the policy network')
 
     # CAVIA

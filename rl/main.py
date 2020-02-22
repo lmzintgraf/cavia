@@ -156,7 +156,7 @@ def main(args):
         # do the inner-loop update for each task
         # this returns training (before update) and validation (after update) episodes
         episodes, inner_losses, z_train = metalearner.sample(tasks, episodes=args.episodes, first_order=args.first_order)
-
+        
         # take the meta-gradient step
         outer_loss = metalearner.step(
             episodes, 
@@ -174,8 +174,23 @@ def main(args):
         # Tensorboard
 
         # Actions mean per batch of episodes
-        writer.add_scalar('policy/actions_train', episodes[0][0].actions.mean(), batch)
-        writer.add_scalar('policy/actions_test', episodes[0][1].actions.mean(), batch)
+        actions_train_fwd = []
+        actions_test_fwd = []
+        actions_train_back = []
+        actions_test_back = []
+        for i in range(len(episodes)):
+            if tasks[i]['direction'] == 1:
+                actions_train_fwd.append(episodes[i][0].actions.mean().item())
+                actions_test_fwd.append(episodes[i][1].actions.mean().item())
+            else:
+                actions_train_back.append(episodes[i][0].actions.mean().item())
+                actions_test_back.append(episodes[i][1].actions.mean().item())
+                
+        
+        writer.add_scalar('policy/actions_train_fwd', np.array(actions_train_fwd).mean(), batch)
+        writer.add_scalar('policy/actions_test_fwd', np.array(actions_test_fwd).mean(), batch)
+        writer.add_scalar('policy/actions_train_back', np.array(actions_train_back).mean(), batch)
+        writer.add_scalar('policy/actions_test_back', np.array(actions_test_back).mean(), batch)
 
         # Reward 
         writer.add_scalar('running_returns/before_update', curr_returns[0][0], batch)
@@ -232,6 +247,9 @@ def main(args):
         # ----- save policy network -----
         with open(os.path.join(save_folder, 'policy-{0}.pt'.format(batch)), 'wb') as f:
             torch.save(policy.state_dict(), f)
+            
+        with open(os.path.join(save_folder, 'context-{0}.pt'.format(batch)), 'wb') as f:
+            torch.save(context_network.state_dict(), f)
 
 
 if __name__ == '__main__':
