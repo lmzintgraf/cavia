@@ -15,7 +15,7 @@ from arguments import parse_args
 from baseline import LinearFeatureBaseline
 from metalearner import MetaLearner
 from policies.categorical_mlp import CategoricalMLPPolicy
-from policies.normal_mlp import NormalMLPPolicy, CaviaMLPPolicy, FlattenMlp
+from policies.normal_mlp import NormalMLPPolicy, CaviaMLPPolicy, FlattenMlp, Mlp
 from sampler import BatchSampler
 
 from context import ContextEncoder
@@ -110,13 +110,13 @@ def main(args):
     context_encoder_output_dim = latent_dim * 2 if args.information_bottleneck else latent_dim
 
     if continuous_actions:
-        policy = FlattenMlp(
+        policy = NormalMLPPolicy(
             obs_dim + latent_dim,
             action_dim,
             hidden_sizes=(args.hidden_size,) * args.num_layers
         )
 
-        context_network = FlattenMlp(
+        context_network = Mlp(
             context_encoder_input_dim,
             context_encoder_output_dim,
             hidden_sizes=(args.hidden_size,) * 3
@@ -155,7 +155,7 @@ def main(args):
 
         # do the inner-loop update for each task
         # this returns training (before update) and validation (after update) episodes
-        episodes, inner_losses, z_train = metalearner.sample(tasks, episodes=args.episodes, first_order=args.first_order)
+        episodes, inner_losses = metalearner.sample(tasks, episodes=args.episodes, first_order=args.first_order)
         
         # take the meta-gradient step
         outer_loss = metalearner.step(
@@ -186,6 +186,8 @@ def main(args):
                 actions_train_back.append(episodes[i][0].actions.mean().item())
                 actions_test_back.append(episodes[i][1].actions.mean().item())
                 
+        # writer.add_scalar('policy/actions_train', episodes[0][0].actions.mean(), batch)
+        # writer.add_scalar('policy/actions_test', episodes[0][1].actions.mean(), batch)
         
         writer.add_scalar('policy/actions_train_fwd', np.array(actions_train_fwd).mean(), batch)
         writer.add_scalar('policy/actions_test_fwd', np.array(actions_test_fwd).mean(), batch)
@@ -206,9 +208,9 @@ def main(args):
         writer.add_scalar('loss/inner_rl', np.mean(inner_losses, axis=0)[2], batch)
         writer.add_scalar('loss/outer_rl', outer_loss.item(), batch)
 
-        # Inference
-        writer.add_scalar('inference_train/z_means', np.mean(z_train, axis=0)[0], batch)
-        writer.add_scalar('inference_train/z_vars', np.mean(z_train, axis=0)[1], batch)
+        # # Inference
+        # writer.add_scalar('inference_train/z_means', np.mean(z_train, axis=0)[0], batch)
+        # writer.add_scalar('inference_train/z_vars', np.mean(z_train, axis=0)[1], batch)
 
 
         notifier.notify(

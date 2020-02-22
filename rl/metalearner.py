@@ -97,26 +97,23 @@ class MetaLearner(object):
         return loss
 
     def adapt(self, episodes, first_order=False, params=None, lr=None):
+        _, task_z = self.context_encoder(episodes.observations, self.context_encoder.context, self.policy)
         
-        task_z, z_info = self.context_encoder(episodes.observations, self.context_encoder.context, self.policy)
-        
-
         # KL constraint on z if probabilistic
-        # self.context_optimizer.zero_grad()
-        
-        kl_div = self.context_encoder.compute_kl_div().requires_grad_()
+        self.context_optimizer.zero_grad()
+        kl_div = self.context_encoder.compute_kl_div()  
         kl_loss = self.kl_lambda * kl_div
         print(kl_loss)
         
         a = list(self.context_encoder.network.parameters())[0].clone()
-        # kl_loss.backward()
-        # self.context_optimizer.step()
-        self.context_encoder.network.update_params(kl_loss, self.context_lr)
+
+        kl_loss.backward()
+        self.context_optimizer.step() 
+               
         b = list(self.context_encoder.network.parameters())[0].clone()
-        print(torch.equal(a.data, b.data))
         
-        print(list(self.context_encoder.network.parameters())[0].grad)
-        
+        print('Is equal? ', torch.equal(a.data, b.data))
+        print('Grad: ', list(self.context_encoder.network.parameters())[0].grad)
         # plot_grad_flow(self.context_encoder.network.named_parameters())
         
         
@@ -128,10 +125,10 @@ class MetaLearner(object):
         # self.context_optimizer.step()
         # self.context_encoder.network.update_params(kl_loss, self.context_lr)
 
-        loss = reinforce_loss - kl_loss
+        loss = reinforce_loss + kl_loss
         losses = (reinforce_loss.item(), kl_loss.item(), loss.item())
 
-        return losses, z_info
+        return losses
 
     def sample(self, tasks, episodes=None, first_order=False):
         """Sample trajectories (before and after the update of the parameters) 
@@ -140,7 +137,7 @@ class MetaLearner(object):
 
         episodes = []
         losses = []
-        z_train = []
+        #z_train = []
         for task in tasks:
             self.sampler.reset_task(task)
             
@@ -155,7 +152,7 @@ class MetaLearner(object):
             )
 
             # inner loop
-            loss, z = self.adapt(train_episodes)
+            loss = self.adapt(train_episodes)
 
             # sample new z
             self.context_encoder.sample_z()
@@ -169,9 +166,9 @@ class MetaLearner(object):
             
             episodes.append((train_episodes, valid_episodes))
             losses.append(loss)
-            z_train.append(z)
+            # z_train.append(z)
 
-        return episodes, losses, z_train
+        return episodes, losses#, z_train
 
     def test(self, tasks, num_steps, batch_size, halve_lr):
         """Sample trajectories (before and after the update of the parameters)

@@ -94,8 +94,7 @@ class ContextEncoder(nn.Module):
         if context is None:
             context = self.context
         
-        # params.shape = (n_tasks, batch_size, transition_size)
-        params = self.network(context).sample()
+        params = self.network(context)
         params = params.view(context.size(0), -1, self.network.output_size)
 
         # with probabilistic z, predict mean and variance of q(z | c)
@@ -103,15 +102,13 @@ class ContextEncoder(nn.Module):
             mu = params[..., :self.latent_dim]
             sigma_squared = F.softplus(params[..., self.latent_dim:])
             z_params = [_product_of_gaussians(m, s) for m, s in zip(torch.unbind(mu), torch.unbind(sigma_squared))]
-            self.z_means = torch.stack([p[0] for p in z_params]) # shape = (n_tasks, z_size)
+            self.z_means = torch.stack([p[0] for p in z_params])
             self.z_vars = torch.stack([p[1] for p in z_params])
         # sum rather than product of gaussians structure
         else:
             self.z_means = torch.mean(params, dim=1)
             
         self.sample_z()
-
-        return [torch.mean(self.z_means).item(), torch.mean(self.z_vars).item()]
 
     def sample_z(self):
         if self.use_ib:
@@ -153,8 +150,8 @@ class ContextEncoder(nn.Module):
         task_z = torch.cat(task_z, dim=0)
         task_z = task_z.unsqueeze(0)
         task_z = task_z.repeat(obs.shape[0],1,1)
-        in_ = torch.cat([obs, task_z.detach()], dim=2)
+        in_ = torch.cat([obs, task_z], dim=2)
 
         policy_outputs = policy(in_)
 
-        return task_z, [torch.mean(self.z_means).item(), torch.mean(self.z_vars).item()]
+        return policy_outputs, task_z
