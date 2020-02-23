@@ -130,35 +130,3 @@ class CaviaMLPPolicy(Policy, nn.Module):
 
     def reset_context(self):
         self.context_params = torch.zeros(self.num_context_params, requires_grad=True).to(self.device)
-
-class Mlp(Policy):
-    def __init__(self, input_size, output_size, hidden_sizes=(),
-                 nonlinearity=F.relu, init_std=1.0, min_std=1e-6):
-        super(Mlp, self).__init__(input_size=input_size, output_size=output_size)
-        self.hidden_sizes = hidden_sizes
-        self.nonlinearity = nonlinearity
-        self.min_log_std = math.log(min_std)
-        self.num_layers = len(hidden_sizes)
-
-        layer_sizes = (input_size,) + hidden_sizes
-        for i in range(1, self.num_layers):
-            self.add_module('layer{0}'.format(i),
-                            nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
-        self.output_layer = nn.Linear(layer_sizes[-1], output_size)
-
-        self.sigma = nn.Parameter(torch.Tensor(output_size))
-        self.sigma.data.fill_(math.log(init_std))
-        self.apply(weight_init)
-
-    def forward(self, input, params=None):
-
-        if params is None:
-            params = OrderedDict(self.named_parameters())
-
-        output = input
-        for i in range(1, self.num_layers):
-            output = F.linear(output,
-                              weight=params['layer{0}.weight'.format(i)],
-                              bias=params['layer{0}.bias'.format(i)])
-            output = self.nonlinearity(output)
-        return self.output_layer(output)

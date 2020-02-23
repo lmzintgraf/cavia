@@ -8,14 +8,15 @@ import numpy as np
 import scipy.stats as st
 import torch
 from tensorboardX import SummaryWriter
-from fcm_notifier import FCMNotifier
+# from fcm_notifier import FCMNotifier
 
 import utils
 from arguments import parse_args
 from baseline import LinearFeatureBaseline
 from metalearner import MetaLearner
 from policies.categorical_mlp import CategoricalMLPPolicy
-from policies.normal_mlp import NormalMLPPolicy, CaviaMLPPolicy, FlattenMlp, Mlp
+from policies.normal_mlp import NormalMLPPolicy, CaviaMLPPolicy
+from policies.mlp import Mlp
 from sampler import BatchSampler
 
 from context import ContextEncoder
@@ -155,7 +156,7 @@ def main(args):
 
         # do the inner-loop update for each task
         # this returns training (before update) and validation (after update) episodes
-        episodes, inner_losses = metalearner.sample(tasks, episodes=args.episodes, first_order=args.first_order)
+        episodes, inner_losses, z_train = metalearner.sample(tasks, episodes=args.episodes, first_order=args.first_order)
         
         # take the meta-gradient step
         outer_loss = metalearner.step(
@@ -173,26 +174,9 @@ def main(args):
         
         # Tensorboard
 
-        # Actions mean per batch of episodes
-        actions_train_fwd = []
-        actions_test_fwd = []
-        actions_train_back = []
-        actions_test_back = []
-        for i in range(len(episodes)):
-            if tasks[i]['direction'] == 1:
-                actions_train_fwd.append(episodes[i][0].actions.mean().item())
-                actions_test_fwd.append(episodes[i][1].actions.mean().item())
-            else:
-                actions_train_back.append(episodes[i][0].actions.mean().item())
-                actions_test_back.append(episodes[i][1].actions.mean().item())
-                
-        # writer.add_scalar('policy/actions_train', episodes[0][0].actions.mean(), batch)
-        # writer.add_scalar('policy/actions_test', episodes[0][1].actions.mean(), batch)
-        
-        writer.add_scalar('policy/actions_train_fwd', np.array(actions_train_fwd).mean(), batch)
-        writer.add_scalar('policy/actions_test_fwd', np.array(actions_test_fwd).mean(), batch)
-        writer.add_scalar('policy/actions_train_back', np.array(actions_train_back).mean(), batch)
-        writer.add_scalar('policy/actions_test_back', np.array(actions_test_back).mean(), batch)
+        # Actions mean per batch of episodes                
+        writer.add_scalar('policy/actions_train', episodes[0][0].actions.mean(), batch)
+        writer.add_scalar('policy/actions_test', episodes[0][1].actions.mean(), batch)
 
         # Reward 
         writer.add_scalar('running_returns/before_update', curr_returns[0][0], batch)
@@ -208,17 +192,18 @@ def main(args):
         writer.add_scalar('loss/inner_rl', np.mean(inner_losses, axis=0)[2], batch)
         writer.add_scalar('loss/outer_rl', outer_loss.item(), batch)
 
-        # # Inference
-        # writer.add_scalar('inference_train/z_means', np.mean(z_train, axis=0)[0], batch)
-        # writer.add_scalar('inference_train/z_vars', np.mean(z_train, axis=0)[1], batch)
+        # Inference
+        writer.add_scalar('inference_train/z_means', np.mean(z_train, axis=0)[0], batch)
+        writer.add_scalar('inference_train/z_vars', np.mean(z_train, axis=0)[1], batch)
 
 
-        notifier.notify(
-            title='', 
-            returnAfter=round(curr_returns[0][1], 4), 
-            T_innerLoss=round(np.mean(inner_losses), 4), 
-            T_outerLoss=round(outer_loss.item(), 4)
-        )
+        # notifier.notify(
+        #     title='', 
+        #     returnAfter=round(curr_returns[0][1], 4), 
+        #     T_innerLoss=round(np.mean(inner_losses), 4), 
+        #     T_outerLoss=round(outer_loss.item(), 4),
+        #     T_Zmean=round(outer_loss.item(), 4)
+        # )
 
         # ----- evaluation -----
         # evaluate for multiple update steps
@@ -240,11 +225,12 @@ def main(args):
 
             print('Inner RL loss:', np.mean(inner_losses))
             print('Outer RL loss:', outer_loss.item())
-            notifier.notify(
-                title='', 
-                E_innerLoss=round(np.mean(inner_losses), 4), 
-                E_outerLoss=round(outer_loss.item(), 4)
-            )
+
+            # notifier.notify(
+            #     title='', 
+            #     E_innerLoss=round(np.mean(inner_losses), 4), 
+            #     E_outerLoss=round(outer_loss.item(), 4)
+            # )
 
         # ----- save policy network -----
         with open(os.path.join(save_folder, 'policy-{0}.pt'.format(batch)), 'wb') as f:

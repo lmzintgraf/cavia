@@ -138,13 +138,7 @@ class ContextEncoder(nn.Module):
         self.infer_posterior(context)
         self.sample_z()
 
-        task_z = self.z
-
-        # t, b, _ = obs.size()
-        # obs = obs.view(t * b, -1)
-        # task_z = [z.repeat(b, 1) for z in task_z]
-        # task_z = torch.cat(task_z, dim=0)
-        
+        task_z = self.z        
         
         task_z = [z.repeat(obs.shape[1], 1) for z in task_z]
         task_z = torch.cat(task_z, dim=0)
