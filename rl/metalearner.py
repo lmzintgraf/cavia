@@ -10,6 +10,7 @@ import torch.optim as optim
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.lines as ln
 
 def plot_grad_flow(named_parameters):
     '''Plots the gradients flowing through different layers in the net during training.
@@ -36,9 +37,9 @@ def plot_grad_flow(named_parameters):
     plt.ylabel("average gradient")
     plt.title("Gradient flow")
     plt.grid(True)
-    plt.legend([Line2D([0], [0], color="c", lw=4),
-                Line2D([0], [0], color="b", lw=4),
-                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+    plt.legend([ln.Line2D([0], [0], color="c", lw=4),
+                ln.Line2D([0], [0], color="b", lw=4),
+                ln.Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
     plt.savefig('grad-flow.png')
 
 
@@ -127,7 +128,7 @@ class MetaLearner(object):
         reinforce_loss = self.inner_loss(episodes, in_)
         reinforce_loss.backward()
     
-        # loss = kl_loss + reinforce_loss
+        loss = kl_loss + reinforce_loss
         # loss.backward()
 
         self.context_optimizer.step()

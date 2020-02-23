@@ -83,7 +83,7 @@ def main(args):
 
     # initialise tensorboard writer
     writer = SummaryWriter(log_folder)
-    notifier = FCMNotifier()
+    # notifier = FCMNotifier()
 
     # save config file
     with open(os.path.join(save_folder, 'config.json'), 'w') as f:
