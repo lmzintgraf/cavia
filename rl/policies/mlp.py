@@ -15,7 +15,7 @@ class Mlp(Policy):
         super(Mlp, self).__init__(input_size=input_size, output_size=output_size)
         self.hidden_sizes = hidden_sizes
         self.nonlinearity = nonlinearity
-        self.num_layers = len(hidden_sizes)
+        self.num_layers = len(hidden_sizes) + 1
 
         layer_sizes = (input_size,) + hidden_sizes
         for i in range(1, self.num_layers):

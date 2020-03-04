@@ -64,8 +64,6 @@ class ContextEncoder(nn.Module):
     def detach_z(self):
         ''' disable backprop through z '''
         self.z = self.z.detach()
-        if self.recurrent:
-            self.context_encoder.hidden = self.context_encoder.hidden.detach()
 
     def update_context(self, inputs):
         """ Append single transition to the current context."""
@@ -88,11 +86,8 @@ class ContextEncoder(nn.Module):
         else:
             self.context = torch.cat([self.context, data], dim=1)
 
-    def infer_posterior(self, context=None):
+    def infer_posterior(self, context):
         """Compute q(z|c) as a function of input context and sample new z from it."""
-
-        if context is None:
-            context = self.context
         
         params = self.network(context)
         params = params.view(context.size(0), -1, self.network.output_size)

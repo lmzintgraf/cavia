@@ -10,36 +10,23 @@ import torch.optim as optim
 
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 def plot_grad_flow(named_parameters):
-    '''Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
-    
-    Usage: Plug this function in Trainer class after loss.backwards() as 
-    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
-
     ave_grads = []
-    max_grads= []
     layers = []
     for n, p in named_parameters:
         if(p.requires_grad) and ("bias" not in n):
             layers.append(n)
             ave_grads.append(p.grad.abs().mean())
-            max_grads.append(p.grad.abs().max())
-    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
-    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
-    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
     plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
-    plt.xlim(left=0, right=len(ave_grads))
-    plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+    plt.xlim(xmin=0, xmax=len(ave_grads))
     plt.xlabel("Layers")
     plt.ylabel("average gradient")
     plt.title("Gradient flow")
     plt.grid(True)
-    plt.legend([Line2D([0], [0], color="c", lw=4),
-                Line2D([0], [0], color="b", lw=4),
-                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
-    plt.savefig('grad-flow.png')
 
 
 class MetaLearner(object):
@@ -63,7 +50,7 @@ class MetaLearner(object):
     """
 
     def __init__(self, sampler, policy, baseline, context_encoder=None, 
-    policy_lr=3e-4, context_lr=3e-4, gamma=0.95, fast_lr=0.5, tau=1.0, device='cpu'):
+    policy_lr=3e-4, context_lr=3e-4, gamma=0.95, tau=1.0, device='cpu'):
         self.sampler = sampler
         self.policy = policy
         self.baseline = baseline
@@ -80,9 +67,8 @@ class MetaLearner(object):
             lr=self.context_lr,
         )
 
-    def sample_z(self, episodes):
+    def get_z(self, episodes):
         self.context_encoder.sample_z()
-
         task_z = self.context_encoder.z
         task_z = [z.repeat(episodes.observations.shape[1], 1) for z in task_z]
         task_z = torch.cat(task_z, dim=0)
@@ -98,6 +84,7 @@ class MetaLearner(object):
         loss is REINFORCE with baseline [2], computed on advantages estimated 
         with Generalized Advantage Estimation (GAE, [3]).
         """
+
         values = self.baseline(episodes)
         advantages = episodes.gae(values, tau=self.tau)
         advantages = weighted_normalize(advantages, weights=episodes.mask)
@@ -112,37 +99,42 @@ class MetaLearner(object):
 
         return loss
 
-    def adapt(self, episodes, first_order=False, params=None, lr=None):
+    def adapt(self, episodes, context):
         
-        _, task_z = self.context_encoder(episodes.observations, self.context_encoder.context, self.policy)
-        
-        # KL constraint on z if probabilistic
-        self.context_optimizer.zero_grad()
-        kl_div = self.context_encoder.compute_kl_div()
-        kl_loss = self.kl_lambda * kl_div        
-        kl_loss.backward(retain_graph=True)
-        
-        self.baseline.fit(episodes)               
-        in_ = torch.cat([episodes.observations, task_z], dim=2)
-        reinforce_loss = self.inner_loss(episodes, in_)
-        reinforce_loss.backward()
-    
-        # loss = kl_loss + reinforce_loss
-        # loss.backward()
+        losses = []
+        for (train_episodes, valid_episodes), context_task in zip(episodes, context):
+            
+            self.context_encoder.clear_z()
+            
+            _, task_z = self.context_encoder(train_episodes.observations, context_task, self.policy)
+            
+            # KL constraint on z if probabilistic
+            self.context_optimizer.zero_grad()
+            kl_div = self.context_encoder.compute_kl_div()
+            kl_loss = self.kl_lambda * kl_div        
+            kl_loss.backward(retain_graph=True)
+            
+            self.baseline.fit(train_episodes)               
+            in_ = torch.cat([train_episodes.observations, task_z], dim=2)
+            reinforce_loss = self.inner_loss(train_episodes, in_)
+            reinforce_loss.backward()
+            # print('REINFORCE ', reinforce_loss.item())
 
-        self.context_optimizer.step()
-        plot_grad_flow(self.context_encoder.network.named_parameters())
+            self.context_optimizer.step()
+            plot_grad_flow(self.context_encoder.network.named_parameters())
 
-        losses = (reinforce_loss.item(), kl_loss.item(), loss.item())
+            loss = kl_loss + reinforce_loss
+            losses.append((reinforce_loss.item(), kl_loss.item(), loss.item()))
+
         return losses
 
-    def sample(self, tasks, episodes=None, first_order=False):
+    def sample(self, tasks, episodes=None):
         """Sample trajectories (before and after the update of the parameters) 
         for all the tasks `tasks`.
         """
 
         episodes = []
-        losses = []
+        context = []
         z_train = []
         for task in tasks:
             self.sampler.reset_task(task)
@@ -158,10 +150,8 @@ class MetaLearner(object):
             )
 
             # inner loop
-            loss = self.adapt(train_episodes)
-
-            # sample new z
-            self.context_encoder.sample_z()
+            context_task = self.context_encoder.context
+            self.context_encoder.infer_posterior(self.context_encoder.context)
 
             # collect rollout T_test
             valid_episodes = self.sampler.sample(
@@ -171,16 +161,17 @@ class MetaLearner(object):
             )
             
             episodes.append((train_episodes, valid_episodes))
-            losses.append(loss)
+            context.append(context_task)     # TODO context is collect from train and test data?
             z_train.append([self.context_encoder.z_means.data.cpu().numpy().mean(),
                             self.context_encoder.z_vars.data.cpu().numpy().mean()])
 
-        return episodes, losses, z_train
+        return episodes, context, z_train
 
-    def test(self, tasks, num_steps, batch_size, halve_lr):
+    def test(self, tasks, num_steps, batch_size):
         """Sample trajectories (before and after the update of the parameters)
         for all the tasks `tasks`.batchsize
         """
+
         episodes_per_task = []
         z_test = []
         for task in tasks:
@@ -200,8 +191,10 @@ class MetaLearner(object):
             curr_episodes = [test_episodes]
             z_step = []
             for i in range(1, num_steps + 1):
-                
-                self.context_encoder.infer_posterior()
+
+                context = self.context_encoder.context
+                self.context_encoder.clear_z()
+                self.context_encoder.infer_posterior(context)
 
                 # get new rollouts
                 test_episodes = self.sampler.sample(
@@ -214,21 +207,24 @@ class MetaLearner(object):
                 curr_episodes.append(test_episodes)
                 z_step.append([self.context_encoder.z_means.data.cpu().numpy().mean(),
                                 self.context_encoder.z_vars.data.cpu().numpy().mean()])
+                
 
             z_test.append(z_step)
             episodes_per_task.append(curr_episodes)
 
-        self.context_encoder.clear_z()
         return episodes_per_task, z_test
 
-    def kl_divergence(self, episodes, old_pis=None):
+    def kl_divergence(self, episodes, context, old_pis=None):
         kls = []
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
-        for (train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
+        for (train_episodes, valid_episodes), context_task, old_pi in zip(episodes, context, old_pis):
 
-            in_ = self.sample_z(valid_episodes)
+            self.context_encoder.clear_z()
+            self.context_encoder.infer_posterior(context_task)
+
+            in_ = self.get_z(valid_episodes)
             pi = self.policy(in_)
 
             if old_pi is None:
@@ -242,11 +238,11 @@ class MetaLearner(object):
 
         return torch.mean(torch.stack(kls, dim=0))
 
-    def hessian_vector_product(self, episodes, damping=1e-2):
+    def hessian_vector_product(self, episodes, context, damping=1e-2):
         """Hessian-vector product, based on the Perlmutter method."""
 
         def _product(vector):
-            kl = self.kl_divergence(episodes)
+            kl = self.kl_divergence(episodes, context)
             grads = torch.autograd.grad(kl, self.policy.parameters(), create_graph=True)
             flat_grad_kl = parameters_to_vector(grads)
 
@@ -258,16 +254,19 @@ class MetaLearner(object):
 
         return _product
 
-    def surrogate_loss(self, episodes, old_pis=None):
-        losses, kls, pis = [], [], []
+    def surrogate_loss(self, episodes, context, old_pis=None):
+        losses, kls, pis, = [], [], []
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
-        for (train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
-
+        for (train_episodes, valid_episodes), old_pi, context_task in zip(episodes, old_pis, context):
+           
+            self.context_encoder.clear_z()
+            self.context_encoder.infer_posterior(context_task)
+           
             with torch.set_grad_enabled(old_pi is None):
 
-                in_ = self.sample_z(valid_episodes)
+                in_ = self.get_z(valid_episodes)
                 pi = self.policy(in_)
                 pis.append(detach_distribution(pi))
 
@@ -295,20 +294,23 @@ class MetaLearner(object):
 
         return torch.mean(torch.stack(losses, dim=0)), torch.mean(torch.stack(kls, dim=0)), pis
 
-    def step(self, episodes, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
+    def step(self, episodes, context, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
              ls_max_steps=10, ls_backtrack_ratio=0.5):
-        """Meta-optimization step (ie. update of the initial parameters), based 
-        on Trust Region Policy Optimization (TRPO, [4]).
-        """
+        """ Meta-optimization step (ie. update of the initial parameters), based 
+        on Trust Region Policy Optimization (TRPO, [4])."""
         
-        old_loss, _, old_pis = self.surrogate_loss(episodes)
+        old_loss, _, old_pis = self.surrogate_loss(episodes, context)
+        # print('SURROGATE ', old_loss.item())
+
+        # update context network
+        in_loss = self.adapt(episodes, context)
 
         # this part will take higher order gradients through the inner loop:
         grads = torch.autograd.grad(old_loss, self.policy.parameters())
         grads = parameters_to_vector(grads)
 
         # Compute the step direction with Conjugate Gradient
-        hessian_vector_product = self.hessian_vector_product(episodes, damping=cg_damping)
+        hessian_vector_product = self.hessian_vector_product(episodes, context, damping=cg_damping)
         stepdir = conjugate_gradient(hessian_vector_product, grads, cg_iters=cg_iters)
 
         # Compute the Lagrange multiplier
@@ -324,7 +326,7 @@ class MetaLearner(object):
         step_size = 1.0
         for _ in range(ls_max_steps):
             vector_to_parameters(old_params - step_size * step, self.policy.parameters())
-            loss, kl, _ = self.surrogate_loss(episodes, old_pis=old_pis)
+            loss, kl, _ = self.surrogate_loss(episodes, context, old_pis=old_pis)
             improve = loss - old_loss
             if (improve.item() < 0.0) and (kl.item() < max_kl):
                 break
@@ -333,7 +335,7 @@ class MetaLearner(object):
             print('no update?')
             vector_to_parameters(old_params, self.policy.parameters())
 
-        return loss
+        return loss, in_loss
 
     def to(self, device, **kwargs):
         self.policy.to(device, **kwargs)
