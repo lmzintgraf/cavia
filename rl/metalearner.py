@@ -10,7 +10,11 @@ import torch.optim as optim
 
 import numpy as np
 import matplotlib.pyplot as plt
+<<<<<<< HEAD
 import time
+=======
+import matplotlib.lines as ln
+>>>>>>> 609bf62cf45aedfdabfa7428e7fe1cf167163239
 
 def plot_grad_flow(named_parameters):
     ave_grads = []
@@ -27,6 +31,13 @@ def plot_grad_flow(named_parameters):
     plt.ylabel("average gradient")
     plt.title("Gradient flow")
     plt.grid(True)
+<<<<<<< HEAD
+=======
+    plt.legend([ln.Line2D([0], [0], color="c", lw=4),
+                ln.Line2D([0], [0], color="b", lw=4),
+                ln.Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+    plt.savefig('grad-flow.png')
+>>>>>>> 609bf62cf45aedfdabfa7428e7fe1cf167163239
 
 
 class MetaLearner(object):
