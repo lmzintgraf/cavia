@@ -82,7 +82,7 @@ def main(args):
 
     # initialise tensorboard writer
     writer = SummaryWriter(log_folder)
-    # notifier = FCMNotifier()
+    notifier = FCMNotifier()
 
     # save config file
     with open(os.path.join(save_folder, 'config.json'), 'w') as f:
@@ -121,8 +121,6 @@ def main(args):
             context_encoder_output_dim,
             hidden_sizes=(args.num_context_params,) * args.num_layers
         )
-
-        print(context_network)
 
         context = ContextEncoder(
             latent_dim,
