@@ -47,10 +47,13 @@ def total_rewards(episodes_per_task, interval=False):
 
     returns = get_returns(episodes_per_task).cpu().numpy()
     mean = np.mean(returns, axis=0)
+    
+    # Endpoints of the range that contains alpha percent of the distribution
+    # interval(alpha, df, loc=0, scale=1)
     conf_int = st.t.interval(0.95, len(mean) - 1, loc=mean, scale=st.sem(returns, axis=0))
-    conf_int = mean - conf_int
+    conf_int = [mean + critval * st.sem(returns, axis=0) / np.sqrt(len(returns)) for critval in conf_int]
     if interval:
-        return mean, conf_int[0]
+        return mean, conf_int
     else:
         return mean
 
@@ -83,6 +86,35 @@ def main(args):
     # initialise tensorboard writer
     writer = SummaryWriter(log_folder)
     notifier = FCMNotifier()
+
+    layout = {
+        'cfis': {'before_update': ['Margin', ['cfis/before_update_mean',
+                                             'cfis/before_update_lower',  
+                                             'cfis/before_update_upper']],
+                 'after_update': ['Margin', ['cfis/after_update_mean',
+                                             'cfis/after_update_lower',  
+                                             'cfis/after_update_upper']],
+                 'evaluation_0': ['Margin', ['cfis/evaluation_mean_0',
+                                           'cfis/evaluation_lower_0',
+                                           'cfis/evaluation_upper_0']],
+                 'evaluation_1': ['Margin', ['cfis/evaluation_mean_1',
+                                           'cfis/evaluation_lower_1',
+                                           'cfis/evaluation_upper_1']],
+                 'evaluation_2': ['Margin', ['cfis/evaluation_mean_2',
+                                           'cfis/evaluation_lower_2',
+                                           'cfis/evaluation_upper_2']],
+                 'evaluation_3': ['Margin', ['cfis/evaluation_mean_3',
+                                           'cfis/evaluation_lower_3',
+                                           'cfis/evaluation_upper_3']],
+                 'evaluation_4': ['Margin', ['cfis/evaluation_mean_4',
+                                           'cfis/evaluation_lower_4',
+                                           'cfis/evaluation_upper_4']],
+                 'evaluation_5': ['Margin', ['cfis/evaluation_mean_5',
+                                           'cfis/evaluation_lower_5',
+                                           'cfis/evaluation_upper_5']]}
+    }
+    writer.add_custom_scalars(layout)
+
 
     # save config file
     with open(os.path.join(save_folder, 'config.json'), 'w') as f:
@@ -180,8 +212,13 @@ def main(args):
         writer.add_scalar('running_returns/after_update', curr_returns[0][1], batch)
 
         # Confidence interval of the mean 
-        writer.add_scalar('running_cfis/before_update', curr_returns[1][0], batch)
-        writer.add_scalar('running_cfis/after_update', curr_returns[1][1], batch)
+        writer.add_scalar('cfis/before_update_mean', curr_returns[0][0], batch)
+        writer.add_scalar('cfis/before_update_lower', curr_returns[1][0][0], batch)
+        writer.add_scalar('cfis/before_update_upper', curr_returns[1][1][0], batch)
+
+        writer.add_scalar('cfis/after_update_mean', curr_returns[0][1], batch)
+        writer.add_scalar('cfis/after_update_lower', curr_returns[1][0][1], batch)
+        writer.add_scalar('cfis/after_update_upper', curr_returns[1][1][1], batch)
 
         # Loss
         writer.add_scalar('loss/reinforce', np.mean(inner_losses, axis=0)[0], batch)
@@ -216,7 +253,11 @@ def main(args):
 
             for num in range(args.num_test_steps + 1):
                 writer.add_scalar('evaluation_rew/avg_rew ' + str(num), all_returns[0][num], batch)
-                writer.add_scalar('evaluation_cfi/avg_rew ' + str(num), all_returns[1][num], batch)
+
+                writer.add_scalar('cfis/evaluation_mean ' + str(num), all_returns[0][num], batch)
+                writer.add_scalar('cfis/evaluation_lower ' + str(num), all_returns[1][0][num], batch)
+                writer.add_scalar('cfis/evaluation_upper ' + str(num), all_returns[1][1][num], batch)
+
                 writer.add_scalar('evaluation_z_means/z_mean ' + str(num), np.mean(z_test[num], axis=0)[0], batch)
                 writer.add_scalar('evaluation_z_vars/z_var ' + str(num), np.mean(z_test[num], axis=0)[1], batch)
 
