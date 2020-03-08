@@ -68,9 +68,12 @@ class MetaLearner(object):
             lr=self.context_lr,
         )
 
-    def get_z(self, episodes):
-        self.context_encoder.sample_z()
-        task_z = self.context_encoder.z
+    def get_z(self, episodes, z=None):
+        if z is None:
+            self.context_encoder.sample_z()
+            task_z = self.context_encoder.z
+        else:
+            task_z = z
         task_z = [z.repeat(episodes.observations.shape[1], 1) for z in task_z]
         task_z = torch.cat(task_z, dim=0)
         task_z = task_z.unsqueeze(0)
@@ -162,7 +165,7 @@ class MetaLearner(object):
             )
             
             episodes.append((train_episodes, valid_episodes))
-            context.append(context_task)     # TODO context is collect from train and test data?
+            context.append(context_task)     
             z_train.append([self.context_encoder.z_means.data.cpu().numpy().mean(),
                             self.context_encoder.z_vars.data.cpu().numpy().mean()])
 
@@ -215,17 +218,14 @@ class MetaLearner(object):
 
         return episodes_per_task, z_test
 
-    def kl_divergence(self, episodes, context, old_pis=None):
+    def kl_divergence(self, episodes, task_z, old_pis=None):
         kls = []
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
-        for (train_episodes, valid_episodes), context_task, old_pi in zip(episodes, context, old_pis):
+        for (train_episodes, valid_episodes), z, old_pi in zip(episodes, task_z, old_pis):
 
-            self.context_encoder.clear_z()
-            self.context_encoder.infer_posterior(context_task)
-
-            in_ = self.get_z(valid_episodes)
+            in_ = self.get_z(valid_episodes, z)
             pi = self.policy(in_)
 
             if old_pi is None:
@@ -239,11 +239,11 @@ class MetaLearner(object):
 
         return torch.mean(torch.stack(kls, dim=0))
 
-    def hessian_vector_product(self, episodes, context, damping=1e-2):
+    def hessian_vector_product(self, episodes, task_z, damping=1e-2):
         """Hessian-vector product, based on the Perlmutter method."""
 
         def _product(vector):
-            kl = self.kl_divergence(episodes, context)
+            kl = self.kl_divergence(episodes, task_z)
             grads = torch.autograd.grad(kl, self.policy.parameters(), create_graph=True)
             flat_grad_kl = parameters_to_vector(grads)
 
@@ -255,21 +255,29 @@ class MetaLearner(object):
 
         return _product
 
-    def surrogate_loss(self, episodes, context, old_pis=None):
+    def surrogate_loss(self, episodes, context=None, task_z=None, infer=True, old_pis=None):
         losses, kls, pis, = [], [], []
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
-        for (train_episodes, valid_episodes), old_pi, context_task in zip(episodes, old_pis, context):
+        if infer:
+            task_z = [None] * len(episodes)
+        else:
+            context = [None] * len(episodes)
+
+        it = 0
+        for (train_episodes, valid_episodes), old_pi, context_task, z in zip(episodes, old_pis, context, task_z):
            
-            self.context_encoder.clear_z()
-            self.context_encoder.infer_posterior(context_task)
+            if infer:
+                self.context_encoder.clear_z()
+                self.context_encoder.infer_posterior(context_task)
            
             with torch.set_grad_enabled(old_pi is None):
 
-                in_ = self.get_z(valid_episodes)
+                in_ = self.get_z(valid_episodes, z)
                 pi = self.policy(in_)
                 pis.append(detach_distribution(pi))
+                it = it + 1
 
                 if old_pi is None:
                     old_pi = detach_distribution(pi)
@@ -300,18 +308,24 @@ class MetaLearner(object):
         """ Meta-optimization step (ie. update of the initial parameters), based 
         on Trust Region Policy Optimization (TRPO, [4])."""
         
-        old_loss, _, old_pis = self.surrogate_loss(episodes, context)
+        old_loss, _, old_pis = self.surrogate_loss(episodes, context=context)
         # print('SURROGATE ', old_loss.item())
 
         # update context network
         in_loss = self.adapt(episodes, context)
+
+        task_z = []
+        for context_task in context:
+            self.context_encoder.clear_z()
+            self.context_encoder.infer_posterior(context_task)
+            task_z.append(self.context_encoder.z)
 
         # this part will take higher order gradients through the inner loop:
         grads = torch.autograd.grad(old_loss, self.policy.parameters())
         grads = parameters_to_vector(grads)
 
         # Compute the step direction with Conjugate Gradient
-        hessian_vector_product = self.hessian_vector_product(episodes, context, damping=cg_damping)
+        hessian_vector_product = self.hessian_vector_product(episodes, task_z, damping=cg_damping)
         stepdir = conjugate_gradient(hessian_vector_product, grads, cg_iters=cg_iters)
 
         # Compute the Lagrange multiplier
@@ -327,7 +341,7 @@ class MetaLearner(object):
         step_size = 1.0
         for _ in range(ls_max_steps):
             vector_to_parameters(old_params - step_size * step, self.policy.parameters())
-            loss, kl, _ = self.surrogate_loss(episodes, context, old_pis=old_pis)
+            loss, kl, _ = self.surrogate_loss(episodes, task_z=task_z, infer=False, old_pis=old_pis)
             improve = loss - old_loss
             if (improve.item() < 0.0) and (kl.item() < max_kl):
                 break
