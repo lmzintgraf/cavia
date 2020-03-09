@@ -110,22 +110,21 @@ class MetaLearner(object):
             
             self.context_encoder.clear_z()
             
-            _, task_z = self.context_encoder(train_episodes.observations, context_task, self.policy)
+            task_z = self.context_encoder(train_episodes.observations, context_task, self.policy)
             
             # KL constraint on z if probabilistic
             self.context_optimizer.zero_grad()
             kl_div = self.context_encoder.compute_kl_div()
-            kl_loss = self.kl_lambda * kl_div        
+            kl_loss = self.kl_lambda * kl_div
             kl_loss.backward(retain_graph=True)
             
             self.baseline.fit(train_episodes)               
             in_ = torch.cat([train_episodes.observations, task_z], dim=2)
             reinforce_loss = self.inner_loss(train_episodes, in_)
             reinforce_loss.backward()
-            # print('REINFORCE ', reinforce_loss.item())
 
             self.context_optimizer.step()
-            plot_grad_flow(self.context_encoder.network.named_parameters())
+            # plot_grad_flow(self.context_encoder.network.named_parameters())
 
             loss = kl_loss + reinforce_loss
             losses.append((reinforce_loss.item(), kl_loss.item(), loss.item()))
@@ -223,9 +222,9 @@ class MetaLearner(object):
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
-        for (train_episodes, valid_episodes), z, old_pi in zip(episodes, task_z, old_pis):
+        for (train_episodes, valid_episodes), Z, old_pi in zip(episodes, task_z, old_pis):
 
-            in_ = self.get_z(valid_episodes, z)
+            in_ = self.get_z(valid_episodes, Z)
             pi = self.policy(in_)
 
             if old_pi is None:
@@ -255,29 +254,38 @@ class MetaLearner(object):
 
         return _product
 
-    def surrogate_loss(self, episodes, context=None, task_z=None, infer=True, old_pis=None):
-        losses, kls, pis, = [], [], []
+    def surrogate_loss(self, episodes, context=None, z=None, adapt=False, old_pis=None):
+        losses, kls, pis, kl_zloss, tasks_z = [], [], [], [], []
+
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
-        if infer:
-            task_z = [None] * len(episodes)
-        else:
+        if z is None:
+            z = [None] * len(episodes)
+
+        if context is None:
             context = [None] * len(episodes)
 
-        it = 0
-        for (train_episodes, valid_episodes), old_pi, context_task, z in zip(episodes, old_pis, context, task_z):
-           
-            if infer:
+        for (train_episodes, valid_episodes), old_pi, context_task, Z in zip(episodes, old_pis, context, z):
+            
+            if adapt:
                 self.context_encoder.clear_z()
-                self.context_encoder.infer_posterior(context_task)
+                task_z = self.context_encoder(train_episodes.observations, context_task, self.policy)
+                tasks_z.append(task_z)
+                
+                # self.context_optimizer.zero_grad()
+                kl_div = self.context_encoder.compute_kl_div()
+                kl_loss = self.kl_lambda * kl_div
+                kl_zloss.append(kl_loss)
+
+            else:
+                task_z = Z
            
             with torch.set_grad_enabled(old_pi is None):
 
-                in_ = self.get_z(valid_episodes, z)
+                in_ = self.get_z(valid_episodes, task_z)
                 pi = self.policy(in_)
                 pis.append(detach_distribution(pi))
-                it = it + 1
 
                 if old_pi is None:
                     old_pi = detach_distribution(pi)
@@ -301,27 +309,24 @@ class MetaLearner(object):
                 kl = weighted_mean(kl_divergence(pi, old_pi), dim=0, weights=mask)
                 kls.append(kl)
 
-        return torch.mean(torch.stack(losses, dim=0)), torch.mean(torch.stack(kls, dim=0)), pis
+        if adapt:
+            kl_zloss = torch.mean(torch.stack(kl_zloss, dim=0))
+
+        return torch.mean(torch.stack(losses, dim=0)), torch.mean(torch.stack(kls, dim=0)), pis, kl_zloss, tasks_z
 
     def step(self, episodes, context, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
              ls_max_steps=10, ls_backtrack_ratio=0.5):
         """ Meta-optimization step (ie. update of the initial parameters), based 
         on Trust Region Policy Optimization (TRPO, [4])."""
         
-        old_loss, _, old_pis = self.surrogate_loss(episodes, context=context)
-        # print('SURROGATE ', old_loss.item())
+        old_loss, _, old_pis, kl_zloss, task_z = self.surrogate_loss(episodes, context, adapt=True)
 
-        # update context network
-        in_loss = self.adapt(episodes, context)
+        self.context_optimizer.zero_grad()        
+        kl_zloss.backward(retain_graph=True)
 
-        task_z = []
-        for context_task in context:
-            self.context_encoder.clear_z()
-            self.context_encoder.infer_posterior(context_task)
-            task_z.append(self.context_encoder.z)
-
-        # this part will take higher order gradients through the inner loop:
         grads = torch.autograd.grad(old_loss, self.policy.parameters())
+
+        self.context_optimizer.step()
         grads = parameters_to_vector(grads)
 
         # Compute the step direction with Conjugate Gradient
@@ -341,7 +346,7 @@ class MetaLearner(object):
         step_size = 1.0
         for _ in range(ls_max_steps):
             vector_to_parameters(old_params - step_size * step, self.policy.parameters())
-            loss, kl, _ = self.surrogate_loss(episodes, task_z=task_z, infer=False, old_pis=old_pis)
+            loss, kl, _, _, _ = self.surrogate_loss(episodes, z=task_z, old_pis=old_pis)
             improve = loss - old_loss
             if (improve.item() < 0.0) and (kl.item() < max_kl):
                 break
@@ -350,7 +355,7 @@ class MetaLearner(object):
             print('no update?')
             vector_to_parameters(old_params, self.policy.parameters())
 
-        return loss, in_loss
+        return loss, (kl_zloss+old_loss, kl_zloss)
 
     def to(self, device, **kwargs):
         self.policy.to(device, **kwargs)

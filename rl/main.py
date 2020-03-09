@@ -221,9 +221,8 @@ def main(args):
         writer.add_scalar('cfis/after_update_upper', curr_returns[1][1][1], batch)
 
         # Loss
-        writer.add_scalar('loss/reinforce', np.mean(inner_losses, axis=0)[0], batch)
-        writer.add_scalar('loss/kl_divergence', np.mean(inner_losses, axis=0)[1], batch)
-        writer.add_scalar('loss/inner_rl', np.mean(inner_losses, axis=0)[2], batch)
+        writer.add_scalar('loss/kl_divergence', inner_losses[1].item(), batch)
+        writer.add_scalar('loss/inner_rl', inner_losses[0].item(), batch)
         writer.add_scalar('loss/outer_rl', outer_loss.item(), batch)
 
         # Inference
@@ -234,7 +233,7 @@ def main(args):
         notifier.notify(
             title='', 
             returnAfter=round(curr_returns[0][1], 4), 
-            T_inLoss=round(np.mean(inner_losses), 4), 
+            T_inLoss=round(inner_losses[0].item(), 4), 
             T_outLoss=round(outer_loss.item(), 4),
             T_Zmean=round(np.mean(z_train, axis=0)[0], 4),
             T_Zvars=round(np.mean(z_train, axis=0)[1], 4)
@@ -261,12 +260,12 @@ def main(args):
                 writer.add_scalar('evaluation_z_means/z_mean ' + str(num), np.mean(z_test[num], axis=0)[0], batch)
                 writer.add_scalar('evaluation_z_vars/z_var ' + str(num), np.mean(z_test[num], axis=0)[1], batch)
 
-            print('Inner RL loss:', np.mean(inner_losses))
+            print('Inner RL loss:', inner_losses[0].item())
             print('Outer RL loss:', outer_loss.item())
 
             notifier.notify(
                 title='', 
-                E_innerLoss=round(np.mean(inner_losses), 4), 
+                E_innerLoss=round(inner_losses[0].item(), 4), 
                 E_outerLoss=round(outer_loss.item(), 4)
             )
 
