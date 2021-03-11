@@ -45,7 +45,7 @@ def parse_args():
     # Task-specific
     parser.add_argument('--fast-batch-size', type=int, default=20,
                         help='number of rollouts for each individual task ()')
-    parser.add_argument('--fast-lr', type=float, default=1.0,
+    parser.add_argument('--fast-lr', type=float, default=0.1,
                         help='learning rate for the 1-step gradient update of MAML/CAVIA')
 
     # Optimization
