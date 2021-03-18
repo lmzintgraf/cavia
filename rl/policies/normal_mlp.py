@@ -77,8 +77,6 @@ class CaviaMLPPolicy(Policy, nn.Module):
         self.add_module('layer{0}'.format(1), nn.Linear(layer_sizes[0] + num_context_params, layer_sizes[1]))
         for i in range(2, self.num_layers):
             self.add_module('layer{0}'.format(i), nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
-            # Neuromodulator layers
-            self.add_module('nm_layer{0}'.format(i), nn.Linear(layer_sizes[i - 1], 8))
 
         self.num_context_params = num_context_params
         self.context_params = torch.zeros(self.num_context_params, requires_grad=True).to(self.device)
@@ -98,15 +96,8 @@ class CaviaMLPPolicy(Policy, nn.Module):
         output = torch.cat((input, self.context_params.expand(input.shape[:-1] + self.context_params.shape)),
                            dim=len(input.shape) - 1)
 
-        # forward through first FC layer
-        output = F.linear(output, weight=params['layer{0}.weight'.format(0)], 
-            bias=params['layer{0}.bias'.format(i)])
-
-        # forward through nm1 before passing back to 'output'
-        y_prime = F.linear(output, weight=params['nm_layer{0}.weight'.format(0)])
-
         # forward through FC Layer
-        for i in range(2, self.num_layers):
+        for i in range(1, self.num_layers):
             output = F.linear(output, weight=params['layer{0}.weight'.format(i)],
                               bias=params['layer{0}.bias'.format(i)])
             output = self.nonlinearity(output)
